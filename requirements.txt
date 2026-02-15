@@ -1,0 +1,22 @@
+# GPU AI Benchmark Suite - Python Dependencies
+# Install: pip install -r requirements.txt
+
+# Core ML Frameworks
+torch>=2.0.0
+torchvision>=0.15.0
+torchaudio>=2.0.0
+
+# NLP / Transformers
+transformers>=4.30.0
+datasets>=2.14.0
+accelerate>=0.21.0
+
+# Data & Utilities
+pandas>=1.5.0
+numpy>=1.24.0
+psutil>=5.9.0
+tqdm>=4.65.0
+pillow>=9.5.0
+
+# Model Hub
+huggingface-hub>=0.16.0
