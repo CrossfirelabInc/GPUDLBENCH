@@ -19,7 +19,7 @@ import math
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import matplotlib
 matplotlib.use("Agg")
@@ -72,26 +72,25 @@ plt.rcParams.update({
 #  PART 1 — Metric extraction
 # ═══════════════════════════════════════════════════════════════════════════════
 
-MetricDict = Dict[str, Any]
+Metricdict = dict[str, Any]
 
 
-def _best(rows: List[Dict], filter_fn, value_key: str) -> Optional[float]:
+def _best(rows: list[dict], filter_fn, value_key: str) -> float | None:
     hits = [r.get(value_key) for r in rows if filter_fn(r) and r.get(value_key) is not None]
     return max(hits) if hits else None
 
 
 def _safe(v: Any) -> Any:
     if isinstance(v, float):
-        import math as _m
-        return None if (_m.isnan(v) or _m.isinf(v)) else round(v, 4)
+        return None if (math.isnan(v) or math.isinf(v)) else round(v, 4)
     return v
 
 
 # ── Extractors ────────────────────────────────────────────────────────────────
 
-def extract_training_vision(data: Dict) -> MetricDict:
+def extract_training_vision(data: dict) -> Metricdict:
     rows = data.get("results", [])
-    out: MetricDict = {}
+    out: Metricdict = {}
     for model in ("resnet50", "resnet101"):
         for prec in ("FP32", "FP16", "BF16", "FP8"):
             v = _best(rows,
@@ -104,9 +103,9 @@ def extract_training_vision(data: Dict) -> MetricDict:
     return out
 
 
-def extract_training_nlp(data: Dict) -> MetricDict:
+def extract_training_nlp(data: dict) -> Metricdict:
     rows = data.get("results", [])
-    out: MetricDict = {}
+    out: Metricdict = {}
     for model in ("bert-base", "bert-large"):
         for prec in ("FP32", "FP16", "BF16", "FP8"):
             v = _best(rows,
@@ -119,9 +118,9 @@ def extract_training_nlp(data: Dict) -> MetricDict:
     return out
 
 
-def extract_inference_vision(data: Dict) -> MetricDict:
+def extract_inference_vision(data: dict) -> Metricdict:
     rows = data.get("results", [])
-    out: MetricDict = {}
+    out: Metricdict = {}
     for model in ("resnet50", "resnet101"):
         for prec in ("FP32", "FP16", "BF16", "FP8"):
             v = _best(rows,
@@ -134,9 +133,9 @@ def extract_inference_vision(data: Dict) -> MetricDict:
     return out
 
 
-def extract_inference_nlp(data: Dict) -> MetricDict:
+def extract_inference_nlp(data: dict) -> Metricdict:
     rows = data.get("results", [])
-    out: MetricDict = {}
+    out: Metricdict = {}
     for model in ("bert-base", "bert-large"):
         for prec in ("FP32", "FP16", "BF16", "FP8"):
             v = _best(rows,
@@ -149,9 +148,9 @@ def extract_inference_nlp(data: Dict) -> MetricDict:
     return out
 
 
-def extract_llm_tokens(data: Dict) -> MetricDict:
+def extract_llm_tokens(data: dict) -> Metricdict:
     rows = data.get("results", [])
-    out: MetricDict = {}
+    out: Metricdict = {}
     best_tps = 0.0
     best_model_desc = None
     for r in rows:
@@ -171,9 +170,9 @@ def extract_llm_tokens(data: Dict) -> MetricDict:
     return out
 
 
-def extract_vram_limits(data: Dict) -> MetricDict:
+def extract_vram_limits(data: dict) -> Metricdict:
     rows = data.get("results", [])
-    out: MetricDict = {}
+    out: Metricdict = {}
     loadable = [r for r in rows if r.get("loadable")]
     if loadable:
         largest = max(loadable, key=lambda r: r.get("approx_params_b", 0))
@@ -202,14 +201,14 @@ def extract_vram_limits(data: Dict) -> MetricDict:
     return out
 
 
-def extract_gemm_stress(data: Dict) -> MetricDict:
-    out: MetricDict = {}
+def extract_gemm_stress(data: dict) -> Metricdict:
+    out: Metricdict = {}
     peak = data.get("peak_tflops", {})
     for prec, val in peak.items():
         out[f"gemm_{prec.lower()}_peak_tflops"] = _safe(val)
     if not peak:
         rows = data.get("results", [])
-        by_prec: Dict[str, float] = {}
+        by_prec: dict[str, float] = {}
         for r in rows:
             p = r.get("precision", "")
             t = r.get("tflops")
@@ -220,9 +219,9 @@ def extract_gemm_stress(data: Dict) -> MetricDict:
     return out
 
 
-def extract_training_detection(data: Dict) -> MetricDict:
+def extract_training_detection(data: dict) -> Metricdict:
     rows = data.get("results", [])
-    out: MetricDict = {}
+    out: Metricdict = {}
     for model in ("faster-rcnn-resnet50", "mask-rcnn-resnet50"):
         for prec in ("FP32", "FP16", "BF16"):
             v = _best(rows,
@@ -236,9 +235,9 @@ def extract_training_detection(data: Dict) -> MetricDict:
     return out
 
 
-def extract_gpu_fundamentals(data: Dict) -> MetricDict:
+def extract_gpu_fundamentals(data: dict) -> Metricdict:
     rows = data.get("results", [])
-    out: MetricDict = {}
+    out: Metricdict = {}
     bw_rows = [r for r in rows if r.get("category") == "memory_bandwidth"]
     if bw_rows:
         out["fund_d2d_bw_peak_gb_s"] = _safe(max(r["value"] for r in bw_rows))
@@ -268,9 +267,9 @@ def extract_gpu_fundamentals(data: Dict) -> MetricDict:
     return out
 
 
-def extract_multi_gpu_scaling(data: Dict) -> MetricDict:
+def extract_multi_gpu_scaling(data: dict) -> Metricdict:
     rows = data.get("results", [])
-    out: MetricDict = {}
+    out: Metricdict = {}
     for r in rows:
         if r.get("status") != "success":
             continue
@@ -302,7 +301,7 @@ _EXTRACTORS = {
 
 # ── Session loader ────────────────────────────────────────────────────────────
 
-def _load_session(session_dir: Path) -> Tuple[str, str, MetricDict]:
+def _load_session(session_dir: Path) -> tuple[str, str, Metricdict]:
     meta_path = session_dir / "session_meta.json"
     if not meta_path.exists():
         raise FileNotFoundError(f"session_meta.json not found in {session_dir}")
@@ -329,7 +328,7 @@ def _load_session(session_dir: Path) -> Tuple[str, str, MetricDict]:
     col_id = f"{gpu_name}_{date_str}"
     col_label = f"{gpu_name.replace('_', ' ')} — {date_str}"
 
-    combined: MetricDict = {}
+    combined: Metricdict = {}
     combined["session_id"] = session_id
     combined["gpu_name"] = gpu_name.replace("_", " ")
     combined["run_date"] = date_str
@@ -375,8 +374,8 @@ def _load_session(session_dir: Path) -> Tuple[str, str, MetricDict]:
 # ── Comparison table ──────────────────────────────────────────────────────────
 
 def build_comparison_table(
-    sessions: List[Tuple[str, str, MetricDict]],
-) -> Tuple[List[str], List[str], List[Dict]]:
+    sessions: list[tuple[str, str, Metricdict]],
+) -> tuple[list[str], list[str], list[dict]]:
     meta_keys = ["session_id", "gpu_name", "run_date", "elapsed_sec"]
     seen = set(meta_keys)
     prefix_order = [
@@ -398,9 +397,9 @@ def build_comparison_table(
     metric_keys = sorted(all_keys, key=lambda k: (_prefix_rank(k), k))
     col_ids = [c[0] for c in sessions]
 
-    rows: List[Dict] = []
+    rows: list[dict] = []
     for key in meta_keys + metric_keys:
-        row: Dict = {"metric_id": key}
+        row: dict = {"metric_id": key}
         for col_id, _, metrics in sessions:
             row[col_id] = metrics.get(key)
         rows.append(row)
@@ -410,7 +409,7 @@ def build_comparison_table(
 
 # ── Output writers ────────────────────────────────────────────────────────────
 
-def write_csv(rows: List[Dict], col_ids: List[str], output_path: Path) -> None:
+def write_csv(rows: list[dict], col_ids: list[str], output_path: Path) -> None:
     fieldnames = ["metric_id"] + col_ids
     with output_path.open("w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
@@ -418,8 +417,8 @@ def write_csv(rows: List[Dict], col_ids: List[str], output_path: Path) -> None:
         writer.writerows(rows)
 
 
-def write_json(rows: List[Dict], col_ids: List[str],
-               sessions: List[Tuple[str, str, MetricDict]],
+def write_json(rows: list[dict], col_ids: list[str],
+               sessions: list[tuple[str, str, Metricdict]],
                output_path: Path) -> None:
     col_labels = {c[0]: c[1] for c in sessions}
     out = {
@@ -441,10 +440,10 @@ class ComparisonData:
     def __init__(self, path: Path):
         with path.open() as f:
             raw = json.load(f)
-        self.columns: List[Dict] = raw["columns"]
-        self.col_ids: List[str] = [c["id"] for c in self.columns]
-        self.col_labels: List[str] = [c["label"] for c in self.columns]
-        self._metrics: Dict[str, Dict[str, Any]] = {}
+        self.columns: list[dict] = raw["columns"]
+        self.col_ids: list[str] = [c["id"] for c in self.columns]
+        self.col_labels: list[str] = [c["label"] for c in self.columns]
+        self._metrics: dict[str, dict[str, Any]] = {}
         for row in raw["metrics"]:
             mid = row["metric_id"]
             self._metrics[mid] = {k: v for k, v in row.items() if k != "metric_id"}
@@ -453,21 +452,21 @@ class ComparisonData:
     def n_gpus(self) -> int:
         return len(self.col_ids)
 
-    def gpu_names(self) -> List[str]:
+    def gpu_names(self) -> list[str]:
         names = []
         for cid in self.col_ids:
             v = self._metrics.get("gpu_name", {}).get(cid, cid)
             names.append(str(v))
         return names
 
-    def get(self, metric_id: str) -> List[Optional[float]]:
+    def get(self, metric_id: str) -> list[float | None]:
         row = self._metrics.get(metric_id, {})
         return [row.get(cid) for cid in self.col_ids]
 
-    def metric_ids(self) -> List[str]:
+    def metric_ids(self) -> list[str]:
         return list(self._metrics.keys())
 
-    def find_metrics(self, prefix: str) -> List[str]:
+    def find_metrics(self, prefix: str) -> list[str]:
         return [m for m in self._metrics if m.startswith(prefix)]
 
 
@@ -491,8 +490,8 @@ def _direction_text(fig, text: str, color: str):
              fontsize=10, color=color, alpha=0.9)
 
 
-def _grouped_bar(ax, categories: List[str], gpu_names: List[str],
-                 values_per_gpu: List[List[float]], ylabel: str,
+def _grouped_bar(ax, categories: list[str], gpu_names: list[str],
+                 values_per_gpu: list[list[float]], ylabel: str,
                  title: str, title_color: str,
                  fmt: str = "{:.0f}", val_fontsize: int = 10):
     n_groups = len(categories)
@@ -529,8 +528,8 @@ def _grouped_bar(ax, categories: List[str], gpu_names: List[str],
     ax.legend(fontsize=10, loc="upper left", facecolor=CARD_COLOR, edgecolor=GRID_COLOR)
 
 
-def _horizontal_grouped_bar(ax, categories: List[str], gpu_names: List[str],
-                            values_per_gpu: List[List[float]], xlabel: str,
+def _horizontal_grouped_bar(ax, categories: list[str], gpu_names: list[str],
+                            values_per_gpu: list[list[float]], xlabel: str,
                             title: str, title_color: str,
                             fmt: str = "{:.1f}"):
     n_groups = len(categories)
@@ -935,17 +934,17 @@ def chart_scorecard(d: ComparisonData, out: Path):
 #  PART 3 — CLI
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def _discover_sessions(results_dir: Path) -> List[Path]:
+def _discover_sessions(results_dir: Path) -> list[Path]:
     return sorted(
         p for p in results_dir.iterdir()
         if p.is_dir() and not p.is_symlink() and (p / "session_meta.json").exists()
     )
 
 
-def _run_extraction(results_dir: Path, session_dirs: List[Path],
+def _run_extraction(results_dir: Path, session_dirs: list[Path],
                     output_dir: Path) -> Path:
     """Extract metrics and write comparison.csv/json. Returns path to JSON."""
-    sessions: List[Tuple[str, str, MetricDict]] = []
+    sessions: list[tuple[str, str, Metricdict]] = []
     for d in session_dirs:
         try:
             col_id, col_label, metrics = _load_session(d)

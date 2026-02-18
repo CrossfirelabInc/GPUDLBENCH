@@ -15,7 +15,6 @@ import argparse
 import sys
 import time
 from pathlib import Path
-from typing import Any, Dict, List
 
 import torch
 import torchvision
@@ -50,7 +49,7 @@ from benchmarks.benchmark_utils import (
 
 
 def _make_dummy_boxes(batch_size: int, device: torch.device,
-                      num_boxes: int = 5) -> List[Dict[str, torch.Tensor]]:
+                      num_boxes: int = 5) -> list[dict[str, torch.Tensor]]:
     """Create valid dummy bounding-box targets (shared by both models)."""
     targets = []
     for _ in range(batch_size):
@@ -69,7 +68,7 @@ def _make_dummy_boxes(batch_size: int, device: torch.device,
 
 def _make_dummy_targets(batch_size: int, device: torch.device,
                         num_boxes: int = 5,
-                        with_masks: bool = False) -> List[Dict[str, torch.Tensor]]:
+                        with_masks: bool = False) -> list[dict[str, torch.Tensor]]:
     """
     Create dummy detection targets. Pass *with_masks=True* for Mask R-CNN,
     which additionally requires a binary mask per instance.
@@ -87,7 +86,7 @@ def _make_dummy_targets(batch_size: int, device: torch.device,
 
 
 # Registry of supported detection models
-_MODEL_REGISTRY: Dict[str, Any] = {
+_MODEL_REGISTRY: dict = {
     "faster-rcnn-resnet50": {
         "factory": fasterrcnn_resnet50_fpn,
         "label":   "Faster R-CNN (ResNet-50 FPN)",
@@ -108,7 +107,7 @@ def benchmark_model(
     device: torch.device,
     warmup: int = DETECTION_WARMUP,
     iterations: int = DETECTION_ITERATIONS,
-) -> Dict[str, Any]:
+) -> dict:
     """Benchmark a detection model (Faster R-CNN or Mask R-CNN) at a given precision."""
 
     spec = _MODEL_REGISTRY[model_key]
@@ -124,10 +123,8 @@ def benchmark_model(
         params = [p for p in model.parameters() if p.requires_grad]
         optimizer = torch.optim.SGD(params, lr=0.005, momentum=0.9, weight_decay=0.0005)
 
-        # FP8: use FP16 autocast (Tensor Cores use FP8 internally on supported HW)
-        effective_precision = "fp16" if precision == "fp8" else precision
-        scaler = get_grad_scaler(effective_precision)
-        amp_ctx = get_amp_context(effective_precision)
+        scaler = get_grad_scaler(precision)
+        amp_ctx = get_amp_context(precision)
 
         # Synthetic data — always FP32 images (AMP casts internally)
         images = [torch.randn(3, DETECTION_IMAGE_SIZE, DETECTION_IMAGE_SIZE, device=device)
@@ -151,7 +148,7 @@ def benchmark_model(
         torch.cuda.synchronize()
 
         # Benchmark
-        times: List[float] = []
+        times: list[float] = []
         for _ in range(iterations):
             start = time.perf_counter()
             optimizer.zero_grad(set_to_none=True)
@@ -235,7 +232,7 @@ def main() -> None:
         monitor = GPUMonitor(device_id=args.device)
         monitor.start()
 
-    results: List[Dict[str, Any]] = []
+    results: list[dict] = []
 
     for model_key, spec in _MODEL_REGISTRY.items():
         print(spec["label"].upper())

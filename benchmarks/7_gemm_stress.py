@@ -16,7 +16,6 @@ import argparse
 import sys
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
 
 import torch
 
@@ -25,7 +24,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from benchmarks.benchmark_utils import (
     add_common_args,
     check_cuda_available,
+    cuda_sync,
     get_gpu_info,
+    median_time,
     print_gpu_banner,
     save_results,
     set_reproducibility,
@@ -33,35 +34,13 @@ from benchmarks.benchmark_utils import (
 from benchmarks.config import GEMM_REPEATS, GEMM_SIZES, GEMM_WARMUP
 
 
-# ─── timing helpers ───────────────────────────────────────────────────────────
-
-def _sync() -> None:
-    torch.cuda.synchronize()
-
-
-def _median_time(fn, warmup: int, repeats: int) -> float:
-    """Return median wall-clock time (seconds) over *repeats* measured calls."""
-    for _ in range(warmup):
-        fn()
-    _sync()
-    times: List[float] = []
-    for _ in range(repeats):
-        _sync()
-        t0 = time.perf_counter()
-        fn()
-        _sync()
-        times.append(time.perf_counter() - t0)
-    times.sort()
-    return times[len(times) // 2]
-
-
 # ─── GEMM kernels ─────────────────────────────────────────────────────────────
 
-def _bench_gemm_dtype(N: int, dtype: torch.dtype, device: torch.device) -> Dict[str, Any]:
+def _bench_gemm_dtype(N: int, dtype: torch.dtype, device: torch.device) -> dict:
     """Square NxN @ NxN GEMM for the given dtype."""
     a = torch.randn(N, N, device=device, dtype=dtype)
     b = torch.randn(N, N, device=device, dtype=dtype)
-    t = _median_time(lambda: torch.mm(a, b), GEMM_WARMUP, GEMM_REPEATS)
+    t = median_time(lambda: torch.mm(a, b), GEMM_WARMUP, GEMM_REPEATS)
     flops = 2.0 * N ** 3          # multiply-add counts as 2 FLOPs
     tflops = flops / t / 1e12
     mem_gb = 2.0 * N * N * a.element_size() / 1e9
@@ -75,7 +54,7 @@ def _bench_gemm_dtype(N: int, dtype: torch.dtype, device: torch.device) -> Dict[
     }
 
 
-def _bench_gemm_fp8(N: int, device: torch.device) -> Optional[Dict[str, Any]]:
+def _bench_gemm_fp8(N: int, device: torch.device) -> dict | None:
     """FP8 GEMM via torch._scaled_mm (Ada/Hopper/Blackwell only)."""
     if not hasattr(torch, "float8_e4m3fn"):
         return None
@@ -91,7 +70,7 @@ def _bench_gemm_fp8(N: int, device: torch.device) -> Optional[Dict[str, Any]]:
         torch._scaled_mm(a8, b8, scale_a=scale_a, scale_b=scale_b,
                          out_dtype=torch.float16)
 
-    t = _median_time(_fn, GEMM_WARMUP, GEMM_REPEATS)
+    t = median_time(_fn, GEMM_WARMUP, GEMM_REPEATS)
     flops = 2.0 * N ** 3
     tflops = flops / t / 1e12
     del a_fp16, b_fp16, a8, b8
@@ -106,11 +85,8 @@ def _bench_gemm_fp8(N: int, device: torch.device) -> Optional[Dict[str, Any]]:
 
 # ─── precision sweep ──────────────────────────────────────────────────────────
 
-PrecisionSpec = Tuple[str, Any]  # (label, dtype | "fp8")
-
-
-def _run_precision(label: str, spec: Any, device: torch.device,
-                   sizes: List[int]) -> List[Dict[str, Any]]:
+def _run_precision(label: str, spec, device: torch.device,
+                   sizes: list[int]) -> list[dict]:
     """Sweep all sizes for one precision.  Returns a list of result rows."""
     bar = "─" * 72
     print(f"\n{bar}")
@@ -119,7 +95,7 @@ def _run_precision(label: str, spec: Any, device: torch.device,
     print(f"  {'Size':>13}  {'TFLOPS':>10}  {'Time (ms)':>10}  {'Matrices (GB)':>14}")
     print(f"  {'─'*13}  {'─'*10}  {'─'*10}  {'─'*14}")
 
-    rows: List[Dict[str, Any]] = []
+    rows: list[dict] = []
     for N in sizes:
         try:
             if spec == "fp8":
@@ -165,10 +141,10 @@ def main() -> None:
     set_reproducibility(args.seed)
 
     cc_major, cc_minor = torch.cuda.get_device_capability(device)
-    sizes: List[int] = GEMM_SIZES
+    sizes: list[int] = GEMM_SIZES
 
     # Build precision list based on capabilities
-    precisions: List[PrecisionSpec] = [
+    precisions: list[tuple[str, ...]] = [
         ("FP64", torch.float64),
         ("FP32", torch.float32),
         ("FP16", torch.float16),
@@ -183,8 +159,8 @@ def main() -> None:
     print(f"Precisions   : {[p[0] for p in precisions]}")
     print(f"Warmup / runs: {GEMM_WARMUP} / {GEMM_REPEATS}")
 
-    all_rows: List[Dict[str, Any]] = []
-    peak: Dict[str, float] = {}
+    all_rows: list[dict] = []
+    peak: dict[str, float] = {}
 
     for label, spec in precisions:
         rows = _run_precision(label, spec, device, sizes)

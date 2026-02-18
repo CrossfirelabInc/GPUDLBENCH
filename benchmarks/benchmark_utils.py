@@ -1,19 +1,9 @@
 #!/usr/bin/env python3
-"""
-Shared utilities for GPU AI Benchmark Suite.
-
-Consolidates common code used across all benchmark scripts:
-  - GPU / CUDA detection and info
-  - VRAM-aware batch-size selection
-  - Reproducibility seed helpers
-  - AMP (Automatic Mixed Precision) context managers
-  - Result saving (CSV + JSON)
-  - Power / thermal monitoring via nvidia-smi
-  - Progress bar wrapper
-"""
+"""Shared utilities for GPU AI Benchmark Suite."""
 
 from __future__ import annotations
 
+import contextlib
 import csv
 import json
 import logging
@@ -25,15 +15,12 @@ import threading
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import torch
-from tqdm import tqdm
 
 from benchmarks.config import OUTPUT_DIR, RANDOM_SEED, MONITOR_INTERVAL_SEC
 
-# ─── Logging ──────────────────────────────────────────────────────────────────
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s  %(levelname)-8s  %(message)s",
@@ -42,19 +29,17 @@ logging.basicConfig(
 logger = logging.getLogger("gpubench")
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-#  GPU / CUDA helpers
-# ═══════════════════════════════════════════════════════════════════════════════
+# ── GPU / CUDA helpers ────────────────────────────────────────────────────────
 
 def check_cuda_available() -> None:
-    """Exit with a clear message if CUDA is not available."""
+    """Exit if CUDA is not available."""
     if not torch.cuda.is_available():
-        logger.error("CUDA is not available! Please install NVIDIA drivers and a CUDA-enabled PyTorch.")
+        logger.error("CUDA is not available!")
         sys.exit(1)
 
 
-def get_gpu_info(device_id: int = 0) -> Dict[str, Any]:
-    """Return a dict with GPU name, VRAM (GB), compute capability, etc."""
+def get_gpu_info(device_id: int = 0) -> dict:
+    """Return dict with GPU name, VRAM, compute capability, SM count."""
     check_cuda_available()
     props = torch.cuda.get_device_properties(device_id)
     return {
@@ -66,55 +51,36 @@ def get_gpu_info(device_id: int = 0) -> Dict[str, Any]:
     }
 
 
-def get_system_info(device_id: int = 0) -> Dict[str, Any]:
-    """
-    Collect comprehensive environment version info for reproducibility.
-
-    Returns a dict with driver, CUDA, cuDNN, PyTorch, Python, OS versions, etc.
-    """
+def get_system_info(device_id: int = 0) -> dict:
+    """Collect environment info for reproducibility."""
     import platform as _platform
 
-    info: Dict[str, Any] = {}
+    info: dict = {
+        "python_version": _platform.python_version(),
+        "os": f"{_platform.system()} {_platform.release()}",
+        "os_version": _platform.version(),
+        "pytorch_version": torch.__version__,
+        "pytorch_cuda_version": getattr(torch.version, "cuda", None),
+        "cudnn_version": str(torch.backends.cudnn.version()) if torch.backends.cudnn.is_available() else None,
+    }
 
-    # ── Python ────────────────────────────────────────────────────────────
-    info["python_version"] = _platform.python_version()
-
-    # ── OS ────────────────────────────────────────────────────────────────
-    info["os"] = f"{_platform.system()} {_platform.release()}"
-    info["os_version"] = _platform.version()
-
-    # ── PyTorch ───────────────────────────────────────────────────────────
-    info["pytorch_version"] = torch.__version__
-    info["pytorch_cuda_version"] = getattr(torch.version, "cuda", None)  # e.g. "12.4"
-
-    # ── cuDNN ─────────────────────────────────────────────────────────────
-    if torch.backends.cudnn.is_available():
-        info["cudnn_version"] = str(torch.backends.cudnn.version())
-    else:
-        info["cudnn_version"] = None
-
-    # ── NVIDIA driver version ─────────────────────────────────────────────
+    # NVIDIA driver
     try:
         r = subprocess.run(
             ["nvidia-smi", "--query-gpu=driver_version", "--format=csv,noheader,nounits"],
             capture_output=True, text=True, timeout=5,
         )
-        if r.returncode == 0:
-            info["nvidia_driver_version"] = r.stdout.strip().split("\n")[0]
-        else:
-            info["nvidia_driver_version"] = None
+        info["nvidia_driver_version"] = r.stdout.strip().split("\n")[0] if r.returncode == 0 else None
     except Exception:
         info["nvidia_driver_version"] = None
 
-    # ── CUDA toolkit (nvcc) version ───────────────────────────────────────
+    # CUDA toolkit (nvcc)
     try:
+        import re as _re
         import shutil as _shutil
         nvcc = _shutil.which("nvcc")
         if nvcc:
-            r = subprocess.run(
-                ["nvcc", "--version"], capture_output=True, text=True, timeout=5,
-            )
-            import re as _re
+            r = subprocess.run(["nvcc", "--version"], capture_output=True, text=True, timeout=5)
             m = _re.search(r"release (\d+\.\d+)", r.stdout)
             info["cuda_toolkit_version"] = m.group(1) if m else None
         else:
@@ -122,7 +88,7 @@ def get_system_info(device_id: int = 0) -> Dict[str, Any]:
     except Exception:
         info["cuda_toolkit_version"] = None
 
-    # ── GPU power info ────────────────────────────────────────────────────
+    # GPU power info
     try:
         r = subprocess.run(
             ["nvidia-smi",
@@ -132,10 +98,11 @@ def get_system_info(device_id: int = 0) -> Dict[str, Any]:
         )
         if r.returncode == 0:
             parts = [p.strip() for p in r.stdout.strip().split("\n")[0].split(",")]
-            info["gpu_power_limit_w"] = float(parts[0]) if parts[0] not in ("[N/A]", "") else None
-            info["gpu_power_default_w"] = float(parts[1]) if len(parts) > 1 and parts[1] not in ("[N/A]", "") else None
-            info["gpu_power_max_w"] = float(parts[2]) if len(parts) > 2 and parts[2] not in ("[N/A]", "") else None
-            info["gpu_power_enforced_w"] = float(parts[3]) if len(parts) > 3 and parts[3] not in ("[N/A]", "") else None
+            _p = lambda i: float(parts[i]) if len(parts) > i and parts[i] not in ("[N/A]", "") else None
+            info["gpu_power_limit_w"] = _p(0)
+            info["gpu_power_default_w"] = _p(1)
+            info["gpu_power_max_w"] = _p(2)
+            info["gpu_power_enforced_w"] = _p(3)
         else:
             info["gpu_power_limit_w"] = None
             info["gpu_power_default_w"] = None
@@ -143,7 +110,7 @@ def get_system_info(device_id: int = 0) -> Dict[str, Any]:
         info["gpu_power_limit_w"] = None
         info["gpu_power_default_w"] = None
 
-    # ── Optional library versions ─────────────────────────────────────────
+    # Optional library versions
     for pkg in ["transformers", "accelerate", "numpy", "pillow", "datasets"]:
         try:
             mod = __import__(pkg)
@@ -156,36 +123,17 @@ def get_system_info(device_id: int = 0) -> Dict[str, Any]:
 
 def supports_bf16(device_id: int = 0) -> bool:
     """BF16 requires compute capability >= 8.0 (Ampere+)."""
-    props = torch.cuda.get_device_properties(device_id)
-    return props.major >= 8
+    return torch.cuda.get_device_properties(device_id).major >= 8
 
 
 def supports_fp8(device_id: int = 0) -> bool:
-    """
-    FP8 (float8_e4m3fn) requires compute capability >= 8.9 (Ada Lovelace / Hopper / Blackwell).
-
-    - Ada Lovelace (RTX 40xx): CC 8.9  — FP8 inference
-    - Hopper (H100):           CC 9.0  — FP8 training + inference
-    - Blackwell (B-series):    CC 10.0 — native FP8 training + inference
-    """
+    """FP8 requires compute capability >= 8.9 (Ada/Hopper/Blackwell)."""
     props = torch.cuda.get_device_properties(device_id)
-    # FP8 tensor core support starts at CC 8.9 (Ada) and above
-    if props.major > 9:
-        return True  # Blackwell+
-    if props.major == 9:
-        return True  # Hopper
-    if props.major == 8 and props.minor >= 9:
-        return True  # Ada Lovelace
-    return False
+    return (props.major > 8) or (props.major == 8 and props.minor >= 9)
 
 
-def supports_tf32(device_id: int = 0) -> bool:
-    """TF32 Tensor Core acceleration requires compute capability >= 8.0."""
-    return supports_bf16(device_id)
-
-
-def print_gpu_banner(info: Dict[str, Any]) -> None:
-    """Pretty-print GPU info at the start of a benchmark."""
+def print_gpu_banner(info: dict) -> None:
+    """Print GPU info at the start of a benchmark."""
     print(f"GPU: {info['gpu_name']}")
     print(f"VRAM: {info['vram_gb']} GB")
     print(f"Compute Capability: {info['compute_capability']}")
@@ -197,27 +145,14 @@ def print_gpu_banner(info: Dict[str, Any]) -> None:
     print()
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-#  Reproducibility
-# ═══════════════════════════════════════════════════════════════════════════════
+# ── Reproducibility ───────────────────────────────────────────────────────────
 
 def set_reproducibility(seed: int = RANDOM_SEED, deterministic: bool = False) -> None:
-    """
-    Set seeds for reproducibility across runs.
-
-    Parameters
-    ----------
-    seed : int
-        Random seed for torch, numpy, and python random.
-    deterministic : bool
-        If True, force cuDNN deterministic mode (slower but bit-exact).
-        Default False because benchmarks care about throughput.
-    """
+    """Set seeds for torch, numpy, and random."""
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
-
     if deterministic:
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark = False
@@ -225,140 +160,70 @@ def set_reproducibility(seed: int = RANDOM_SEED, deterministic: bool = False) ->
         torch.backends.cudnn.benchmark = True
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-#  Batch-size selection based on VRAM
-# ═══════════════════════════════════════════════════════════════════════════════
+# ── Batch-size selection ──────────────────────────────────────────────────────
 
-def get_vision_train_batch_sizes(vram_gb: float) -> List[int]:
-    """Return training batch sizes for vision models based on VRAM."""
-    if vram_gb >= 40:
-        return [16, 32, 64, 128, 256]
-    elif vram_gb >= 24:
-        return [16, 32, 64, 128]
-    elif vram_gb >= 16:
-        return [8, 16, 32, 64]
-    elif vram_gb >= 8:
-        return [4, 8, 16, 32]
-    else:
-        return [2, 4, 8]
-
-
-def get_vision_infer_batch_sizes(vram_gb: float) -> List[int]:
-    """Return inference batch sizes for vision models."""
-    if vram_gb >= 40:
-        return [1, 8, 16, 32, 64, 128]
-    elif vram_gb >= 24:
-        return [1, 8, 16, 32, 64]
-    elif vram_gb >= 16:
-        return [1, 8, 16, 32]
-    elif vram_gb >= 8:
-        return [1, 4, 8, 16]
-    else:
-        return [1, 2, 4, 8]
+_VISION_TRAIN_BS = [(40, [16, 32, 64, 128, 256]), (24, [16, 32, 64, 128]),
+                    (16, [8, 16, 32, 64]), (8, [4, 8, 16, 32]), (0, [2, 4, 8])]
+_VISION_INFER_BS = [(40, [1, 8, 16, 32, 64, 128]), (24, [1, 8, 16, 32, 64]),
+                    (16, [1, 8, 16, 32]), (8, [1, 4, 8, 16]), (0, [1, 2, 4, 8])]
+_NLP_TRAIN_BASE  = [(40, [8, 16, 32, 64]), (24, [8, 16, 32]),
+                    (16, [4, 8, 16]), (0, [2, 4, 8])]
+_NLP_TRAIN_LARGE = [(40, [4, 8, 16, 32]), (24, [2, 4, 8]),
+                    (16, [2, 4]), (0, [1, 2])]
+_NLP_INFER_BASE  = [(40, [1, 8, 16, 32, 64]), (24, [1, 8, 16, 32]),
+                    (16, [1, 4, 8, 16]), (0, [1, 2, 4, 8])]
+_NLP_INFER_LARGE = [(40, [1, 4, 8, 16, 32]), (24, [1, 4, 8, 16]),
+                    (16, [1, 2, 4, 8]), (0, [1, 2, 4])]
+_DETECTION_BS    = [(40, [2, 4, 8]), (24, [1, 2, 4]),
+                    (16, [1, 2]), (0, [1])]
 
 
-def get_nlp_train_batch_sizes(vram_gb: float, model_name: str) -> List[int]:
-    """Return training batch sizes for NLP models, accounting for model size."""
-    is_large = "large" in model_name.lower()
-    if is_large:
-        if vram_gb >= 40:
-            return [4, 8, 16, 32]
-        elif vram_gb >= 24:
-            return [2, 4, 8]
-        elif vram_gb >= 16:
-            return [2, 4]
-        else:
-            return [1, 2]
-    else:
-        if vram_gb >= 40:
-            return [8, 16, 32, 64]
-        elif vram_gb >= 24:
-            return [8, 16, 32]
-        elif vram_gb >= 16:
-            return [4, 8, 16]
-        else:
-            return [2, 4, 8]
+def _pick(table: list, vram_gb: float) -> list[int]:
+    for threshold, sizes in table:
+        if vram_gb >= threshold:
+            return sizes
+    return table[-1][1]
 
 
-def get_nlp_infer_batch_sizes(vram_gb: float, model_name: str) -> List[int]:
-    """Return inference batch sizes for NLP models."""
-    is_large = "large" in model_name.lower()
-    if is_large:
-        if vram_gb >= 40:
-            return [1, 4, 8, 16, 32]
-        elif vram_gb >= 24:
-            return [1, 4, 8, 16]
-        elif vram_gb >= 16:
-            return [1, 2, 4, 8]
-        else:
-            return [1, 2, 4]
-    else:
-        if vram_gb >= 40:
-            return [1, 8, 16, 32, 64]
-        elif vram_gb >= 24:
-            return [1, 8, 16, 32]
-        elif vram_gb >= 16:
-            return [1, 4, 8, 16]
-        else:
-            return [1, 2, 4, 8]
+def get_vision_train_batch_sizes(vram_gb: float) -> list[int]:
+    return _pick(_VISION_TRAIN_BS, vram_gb)
+
+def get_vision_infer_batch_sizes(vram_gb: float) -> list[int]:
+    return _pick(_VISION_INFER_BS, vram_gb)
+
+def get_nlp_train_batch_sizes(vram_gb: float, model_name: str) -> list[int]:
+    table = _NLP_TRAIN_LARGE if "large" in model_name.lower() else _NLP_TRAIN_BASE
+    return _pick(table, vram_gb)
+
+def get_nlp_infer_batch_sizes(vram_gb: float, model_name: str) -> list[int]:
+    table = _NLP_INFER_LARGE if "large" in model_name.lower() else _NLP_INFER_BASE
+    return _pick(table, vram_gb)
+
+def get_detection_batch_sizes(vram_gb: float) -> list[int]:
+    return _pick(_DETECTION_BS, vram_gb)
 
 
-def get_detection_batch_sizes(vram_gb: float) -> List[int]:
-    """Return training batch sizes for detection models."""
-    if vram_gb >= 40:
-        return [2, 4, 8]
-    elif vram_gb >= 24:
-        return [1, 2, 4]
-    elif vram_gb >= 16:
-        return [1, 2]
-    else:
-        return [1]
+# ── AMP helpers ───────────────────────────────────────────────────────────────
 
-
-# ═══════════════════════════════════════════════════════════════════════════════
-#  AMP (Automatic Mixed Precision) helpers
-# ═══════════════════════════════════════════════════════════════════════════════
-
-def get_amp_context(precision: str, device_type: str = "cuda"):
-    """
-    Return an appropriate autocast context manager for the given precision.
-
-    Parameters
-    ----------
-    precision : str
-        One of "fp32", "fp16", "bf16", "fp8".
-    device_type : str
-        Typically "cuda".
-
-    Returns
-    -------
-    torch.amp.autocast context manager (or nullcontext for fp32/fp8).
-
-    Note: FP8 does not use autocast; callers handle float8 casting manually.
-    """
-    if precision == "fp16":
-        return torch.amp.autocast(device_type=device_type, dtype=torch.float16)
+def get_amp_context(precision: str):
+    """Return autocast context for the given precision. FP8 maps to FP16."""
+    if precision in ("fp16", "fp8"):
+        return torch.amp.autocast(device_type="cuda", dtype=torch.float16)
     elif precision == "bf16":
-        return torch.amp.autocast(device_type=device_type, dtype=torch.bfloat16)
+        return torch.amp.autocast(device_type="cuda", dtype=torch.bfloat16)
     else:
-        # FP32 and FP8 — no autocasting (FP8 uses manual dtype conversion)
-        import contextlib
         return contextlib.nullcontext()
 
 
-def get_grad_scaler(precision: str) -> Optional[torch.amp.GradScaler]:
-    """
-    Return a GradScaler for FP16 training, or None for FP32/BF16.
-
-    BF16 does not need loss scaling because its dynamic range matches FP32.
-    """
-    if precision == "fp16":
+def get_grad_scaler(precision: str):
+    """Return GradScaler for FP16/FP8, None otherwise."""
+    if precision in ("fp16", "fp8"):
         return torch.amp.GradScaler("cuda")
     return None
 
 
-def filter_precisions_for_gpu(precisions: List[str], device_id: int = 0) -> List[str]:
-    """Remove bf16/fp8 from the list if the GPU does not support them."""
+def filter_precisions_for_gpu(precisions: list[str], device_id: int = 0) -> list[str]:
+    """Remove bf16/fp8 if the GPU doesn't support them."""
     result = list(precisions)
     if not supports_bf16(device_id):
         result = [p for p in result if p != "bf16"]
@@ -367,59 +232,54 @@ def filter_precisions_for_gpu(precisions: List[str], device_id: int = 0) -> List
     return result
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-#  TF32 control
-# ═══════════════════════════════════════════════════════════════════════════════
+# ── TF32 control ──────────────────────────────────────────────────────────────
 
 def set_tf32(enabled: bool = True) -> None:
-    """
-    Enable or disable TF32 for matmul and cuDNN on Ampere+ GPUs.
-
-    TF32 is ON by default in PyTorch >= 1.12 on Ampere+ GPUs.
-    Disabling it gives true FP32 precision at the cost of speed.
-    """
+    """Enable/disable TF32 for matmul and cuDNN (Ampere+)."""
     torch.backends.cuda.matmul.allow_tf32 = enabled
     torch.backends.cudnn.allow_tf32 = enabled
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-#  Result I/O
-# ═══════════════════════════════════════════════════════════════════════════════
+# ── Timing helpers (shared by GEMM stress and GPU fundamentals) ───────────────
+
+def cuda_sync() -> None:
+    """Synchronize CUDA device."""
+    torch.cuda.synchronize()
+
+
+def median_time(fn, warmup: int, repeats: int) -> float:
+    """Return median wall-clock time (seconds) over *repeats* measured calls."""
+    for _ in range(warmup):
+        fn()
+    cuda_sync()
+    times: list[float] = []
+    for _ in range(repeats):
+        cuda_sync()
+        t0 = time.perf_counter()
+        fn()
+        cuda_sync()
+        times.append(time.perf_counter() - t0)
+    times.sort()
+    return times[len(times) // 2]
+
+
+# ── Result I/O ────────────────────────────────────────────────────────────────
 
 def ensure_output_dir(output_dir: str = OUTPUT_DIR) -> Path:
-    """Create the output directory if it doesn't exist and return as Path."""
+    """Create output directory if needed and return as Path."""
     p = Path(output_dir)
     p.mkdir(parents=True, exist_ok=True)
     return p
 
 
 def save_results(
-    results: List[Dict[str, Any]],
+    results: list[dict],
     filename_stem: str,
-    gpu_info: Dict[str, Any],
-    extra_meta: Optional[Dict[str, Any]] = None,
+    gpu_info: dict,
+    extra_meta: dict | None = None,
     output_dir: str = OUTPUT_DIR,
-) -> Tuple[Path, Path]:
-    """
-    Save benchmark results to both CSV and JSON.
-
-    Parameters
-    ----------
-    results : list of dicts
-        Each dict is one benchmark row.
-    filename_stem : str
-        Base name without extension, e.g. "training_vision".
-    gpu_info : dict
-        Output of get_gpu_info().
-    extra_meta : dict, optional
-        Additional metadata to include in the JSON top-level.
-    output_dir : str
-        Directory for output files.
-
-    Returns
-    -------
-    (csv_path, json_path)
-    """
+) -> tuple[Path, Path]:
+    """Save benchmark results to CSV + JSON. Returns (csv_path, json_path)."""
     out = ensure_output_dir(output_dir)
 
     # CSV
@@ -431,7 +291,7 @@ def save_results(
             writer.writerows(results)
 
     # JSON
-    json_data: Dict[str, Any] = {
+    json_data: dict = {
         "gpu": gpu_info["gpu_name"],
         "vram_gb": gpu_info["vram_gb"],
         "compute_capability": gpu_info["compute_capability"],
@@ -449,44 +309,26 @@ def save_results(
     return csv_path, json_path
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-#  Power / Thermal Monitoring
-# ═══════════════════════════════════════════════════════════════════════════════
+# ── Power / Thermal Monitoring ────────────────────────────────────────────────
 
 class GPUMonitor:
-    """
-    Background thread that polls nvidia-smi for power draw, temperature,
-    and clock speeds at a configurable interval.
-
-    Usage
-    -----
-    >>> monitor = GPUMonitor(device_id=0)
-    >>> monitor.start()
-    >>> # ... run benchmark ...
-    >>> stats = monitor.stop()
-    >>> print(stats)  # {'avg_power_w': ..., 'max_power_w': ..., ...}
-    """
+    """Background thread polling nvidia-smi for power, temperature, clocks."""
 
     def __init__(self, device_id: int = 0, interval: float = MONITOR_INTERVAL_SEC):
         self.device_id = device_id
         self.interval = interval
-        self._thread: Optional[threading.Thread] = None
+        self._thread = None
         self._stop_event = threading.Event()
-        self._samples: List[Dict[str, float]] = []
+        self._samples: list[dict] = []
 
     def _poll(self) -> None:
         while not self._stop_event.is_set():
             try:
                 result = subprocess.run(
-                    [
-                        "nvidia-smi",
-                        f"--id={self.device_id}",
-                        "--query-gpu=power.draw,temperature.gpu,clocks.current.sm",
-                        "--format=csv,noheader,nounits",
-                    ],
-                    capture_output=True,
-                    text=True,
-                    timeout=5,
+                    ["nvidia-smi", f"--id={self.device_id}",
+                     "--query-gpu=power.draw,temperature.gpu,clocks.current.sm",
+                     "--format=csv,noheader,nounits"],
+                    capture_output=True, text=True, timeout=5,
                 )
                 if result.returncode == 0:
                     parts = result.stdout.strip().split(", ")
@@ -497,17 +339,16 @@ class GPUMonitor:
                             "clock_mhz": float(parts[2]),
                         })
             except Exception:
-                pass  # nvidia-smi may not be available; silently skip
+                pass
             self._stop_event.wait(self.interval)
 
     def start(self) -> None:
-        """Start background monitoring."""
         self._samples.clear()
         self._stop_event.clear()
         self._thread = threading.Thread(target=self._poll, daemon=True)
         self._thread.start()
 
-    def stop(self) -> Dict[str, Any]:
+    def stop(self) -> dict:
         """Stop monitoring and return aggregated statistics."""
         self._stop_event.set()
         if self._thread:
@@ -532,57 +373,17 @@ class GPUMonitor:
         }
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-#  Progress helpers
-# ═══════════════════════════════════════════════════════════════════════════════
-
-def benchmark_iterator(total: int, desc: str = "Benchmarking", warmup: int = 0, show_progress: bool = True):
-    """
-    Yield iteration indices with an optional tqdm progress bar.
-
-    Usage
-    -----
-    >>> for i in benchmark_iterator(100, desc="ResNet-50 FP32"):
-    ...     # run one iteration
-    ...     pass
-    """
-    total_iters = warmup + total
-    if show_progress:
-        pbar = tqdm(range(total_iters), desc=desc, leave=False, ncols=80)
-    else:
-        pbar = range(total_iters)
-
-    for i in pbar:
-        yield i, (i < warmup)  # (index, is_warmup)
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-#  CLI argument parsing helper
-# ═══════════════════════════════════════════════════════════════════════════════
+# ── CLI argument helper ──────────────────────────────────────────────────────
 
 def add_common_args(parser) -> None:
-    """
-    Add arguments shared by all benchmark scripts.
-
-    Call this from each script's argparse setup.
-    """
-    parser.add_argument(
-        "--output-dir", type=str, default=OUTPUT_DIR,
-        help=f"Directory for result files (default: {OUTPUT_DIR})"
-    )
-    parser.add_argument(
-        "--device", type=int, default=0,
-        help="CUDA device ID (default: 0)"
-    )
-    parser.add_argument(
-        "--seed", type=int, default=RANDOM_SEED,
-        help=f"Random seed for reproducibility (default: {RANDOM_SEED})"
-    )
-    parser.add_argument(
-        "--no-monitor", action="store_true",
-        help="Disable power/thermal monitoring"
-    )
-    parser.add_argument(
-        "--precisions", nargs="+", default=None,
-        help="Precision modes to test, e.g. --precisions fp32 fp16 bf16"
-    )
+    """Add arguments shared by all benchmark scripts."""
+    parser.add_argument("--output-dir", type=str, default=OUTPUT_DIR,
+                        help=f"Directory for result files (default: {OUTPUT_DIR})")
+    parser.add_argument("--device", type=int, default=0,
+                        help="CUDA device ID (default: 0)")
+    parser.add_argument("--seed", type=int, default=RANDOM_SEED,
+                        help=f"Random seed (default: {RANDOM_SEED})")
+    parser.add_argument("--no-monitor", action="store_true",
+                        help="Disable power/thermal monitoring")
+    parser.add_argument("--precisions", nargs="+", default=None,
+                        help="Precision modes to test, e.g. --precisions fp32 fp16 bf16")

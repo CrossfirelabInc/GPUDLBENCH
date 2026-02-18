@@ -10,7 +10,6 @@ import argparse
 import sys
 import time
 from pathlib import Path
-from typing import Any, Dict, List
 
 import torch
 from transformers import BertForSequenceClassification, BertConfig
@@ -49,7 +48,7 @@ def benchmark_model(
     device: torch.device,
     warmup: int = NLP_INFER_WARMUP,
     iterations: int = NLP_INFER_ITERATIONS,
-) -> Dict[str, Any]:
+) -> dict:
     """Benchmark a single inference configuration."""
 
     tag = f"{model_name} {precision.upper()} BS={batch_size}"
@@ -69,9 +68,7 @@ def benchmark_model(
         input_ids = torch.randint(0, config.vocab_size, (batch_size, NLP_SEQ_LENGTH), device=device)
         attention_mask = torch.ones(batch_size, NLP_SEQ_LENGTH, dtype=torch.long, device=device)
 
-        # FP8: use FP16 autocast (Tensor Cores use FP8 internally on supported HW)
-        effective_precision = "fp16" if precision == "fp8" else precision
-        amp_ctx = get_amp_context(effective_precision)
+        amp_ctx = get_amp_context(precision)
 
         # Warmup
         with torch.inference_mode():
@@ -82,7 +79,7 @@ def benchmark_model(
         torch.cuda.synchronize()
 
         # Benchmark
-        times: List[float] = []
+        times: list[float] = []
         with torch.inference_mode():
             for _ in range(iterations):
                 start = time.perf_counter()
@@ -163,7 +160,7 @@ def main() -> None:
         monitor = GPUMonitor(device_id=args.device)
         monitor.start()
 
-    results: List[Dict[str, Any]] = []
+    results: list[dict] = []
 
     for model_name in args.models:
         model_config = NLP_MODELS[model_name]

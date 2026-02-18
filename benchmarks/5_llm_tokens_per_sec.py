@@ -14,12 +14,10 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from benchmarks.config import (
-    LLM_MODELS,
     LLM_MODEL_SETS,
     LLM_NUM_TOKENS,
     LLM_PROMPT,
@@ -34,22 +32,11 @@ from benchmarks.benchmark_utils import (
     GPUMonitor,
     print_gpu_banner,
     save_results,
-    logger,
 )
 
 
-def find_llama_cli() -> Optional[Path]:
-    """
-    Locate the best llama.cpp binary for benchmarking.
-
-    Prefers llama-completion (non-interactive batch mode) over llama-cli.
-
-    Search order per binary:
-      1. LLAMA_CPP_PATH env var
-      2. <project>/llama.cpp/build/bin/  (CMake build)
-      3. ~/llama.cpp/build/bin/
-      4. binary on $PATH
-    """
+def find_llama_cli() -> Path | None:
+    """Locate the best llama.cpp binary (llama-completion or llama-cli)."""
     # Binary preference order: llama-completion is non-interactive by design,
     # llama-cli requires --no-conversation flag (newer builds default to chat mode)
     binaries = ["llama-completion", "llama-cli"]
@@ -89,7 +76,7 @@ def find_llama_cli() -> Optional[Path]:
     return None
 
 
-def find_model(model: dict, models_dir: Path) -> Optional[Path]:
+def find_model(model: dict, models_dir: Path) -> Path | None:
     """Check if a pre-downloaded GGUF model exists. Returns path or None."""
     model_path = models_dir / model["filename"]
     if model_path.exists():
@@ -100,7 +87,7 @@ def find_model(model: dict, models_dir: Path) -> Optional[Path]:
     return None
 
 
-def parse_llama_output(output: str) -> Dict[str, Any]:
+def parse_llama_output(output: str) -> dict:
     """
     Parse llama.cpp timing output from stderr and/or stdout.
 
@@ -109,7 +96,7 @@ def parse_llama_output(output: str) -> Dict[str, Any]:
       - New format: "[ Prompt: 652.8 t/s | Generation: 43.8 t/s ]"
       - perf timings: "llama_perf_context_print: eval time = ..."
     """
-    result: Dict[str, Any] = {
+    result: dict = {
         "tokens_generated": None,
         "total_time_s": None,
         "tokens_per_second": None,
@@ -151,7 +138,7 @@ def parse_llama_output(output: str) -> Dict[str, Any]:
     return result
 
 
-def benchmark_model(model: dict, model_path: Optional[Path], llama_cli: Path) -> Dict[str, Any]:
+def benchmark_model(model: dict, model_path: Path | None, llama_cli: Path) -> dict:
     """Benchmark a single GGUF model."""
 
     print(f"  Running benchmark on {model['name']}...", end=" ", flush=True)
@@ -208,7 +195,7 @@ def benchmark_model(model: dict, model_path: Optional[Path], llama_cli: Path) ->
                 print("OOM")
                 return {**base_result, "status": "oom"}
             print("ERROR (parse failed)")
-            logger.debug(f"llama.cpp stderr:\n{result.stderr[-500:]}")
+            print(f"    llama.cpp stderr (last 500 chars):\n{result.stderr[-500:]}")
             return {**base_result, "status": "parse_failed"}
 
     except subprocess.TimeoutExpired:
@@ -272,7 +259,7 @@ def main() -> None:
         monitor = GPUMonitor(device_id=args.device)
         monitor.start()
 
-    results: List[Dict[str, Any]] = []
+    results: list[dict] = []
 
     for i, model in enumerate(models, 1):
         print(f"\n[{i}/{len(models)}] {model['name']} ({model['size_gb']:.1f}GB, {model['quant']})")

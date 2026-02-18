@@ -24,7 +24,6 @@ import argparse
 import sys
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional
 
 import torch
 import torch.nn as nn
@@ -71,7 +70,7 @@ def _build_bert_base() -> nn.Module:
 
 # ──────────────────────────── benchmark core ──────────────────────────────────
 
-def _sync_all(device_ids: List[int]) -> None:
+def _sync_all(device_ids: list[int]) -> None:
     for d in device_ids:
         torch.cuda.synchronize(d)
 
@@ -79,13 +78,13 @@ def _sync_all(device_ids: List[int]) -> None:
 def _bench_training(
     model_name: str,
     model_factory,
-    device_ids: List[int],
+    device_ids: list[int],
     batch_per_gpu: int,
     warmup: int,
     iterations: int,
     make_inputs_fn,
     compute_loss_fn,
-) -> Dict[str, Any]:
+) -> float:
     """Generic DataParallel training benchmark."""
     n_gpu = len(device_ids)
     total_batch = batch_per_gpu * n_gpu
@@ -110,7 +109,7 @@ def _bench_training(
     _sync_all(device_ids)
 
     # Benchmark
-    times: List[float] = []
+    times: list[float] = []
     for _ in range(iterations):
         _sync_all(device_ids)
         t0 = time.perf_counter()
@@ -135,12 +134,12 @@ def _bench_training(
 def _bench_inference(
     model_name: str,
     model_factory,
-    device_ids: List[int],
+    device_ids: list[int],
     batch_per_gpu: int,
     warmup: int,
     iterations: int,
     make_inputs_fn,
-) -> Dict[str, Any]:
+) -> float:
     """Generic DataParallel inference benchmark."""
     n_gpu = len(device_ids)
     total_batch = batch_per_gpu * n_gpu
@@ -160,7 +159,7 @@ def _bench_inference(
             model(**inputs) if isinstance(inputs, dict) else model(inputs)
         _sync_all(device_ids)
 
-        times: List[float] = []
+        times: list[float] = []
         for _ in range(iterations):
             inputs = make_inputs_fn(total_batch, primary)
             _sync_all(device_ids)
@@ -191,7 +190,7 @@ def _vision_loss(model: nn.Module, x: torch.Tensor) -> torch.Tensor:
     return nn.functional.cross_entropy(logits, target)
 
 
-def _nlp_inputs(batch: int, device: torch.device) -> Dict[str, torch.Tensor]:
+def _nlp_inputs(batch: int, device: torch.device) -> dict[str, torch.Tensor]:
     return {
         "input_ids":      torch.randint(0, NLP_VOCAB_SIZE, (batch, NLP_SEQ_LENGTH), device=device),
         "attention_mask": torch.ones(batch, NLP_SEQ_LENGTH, dtype=torch.long,   device=device),
@@ -199,7 +198,7 @@ def _nlp_inputs(batch: int, device: torch.device) -> Dict[str, torch.Tensor]:
     }
 
 
-def _nlp_loss(model: nn.Module, inputs: Dict[str, torch.Tensor]) -> torch.Tensor:
+def _nlp_loss(model: nn.Module, inputs: dict[str, torch.Tensor]) -> torch.Tensor:
     out = model(**inputs)
     return out.loss
 
@@ -225,18 +224,39 @@ def main() -> None:
     set_tf32(True)
 
     print(f"\nAvailable GPUs: {n_gpus_available}")
+
+    # Check whether all GPUs are identical (same model name and VRAM)
+    gpus_identical = True
+    if n_gpus_available >= 2:
+        gpu_names = [torch.cuda.get_device_name(i) for i in range(n_gpus_available)]
+        gpu_vrams = [
+            torch.cuda.get_device_properties(i).total_memory
+            for i in range(n_gpus_available)
+        ]
+        for i in range(n_gpus_available):
+            print(f"  GPU {i}: {gpu_names[i]}  "
+                  f"({gpu_vrams[i] / 1024**3:.1f} GiB)")
+        if len(set(gpu_names)) != 1 or len(set(gpu_vrams)) != 1:
+            gpus_identical = False
+            print("\n  WARNING: GPUs are NOT identical — multi-GPU scaling "
+                  "tests will be skipped.")
+            print("           DataParallel requires matching GPUs for "
+                  "meaningful results.\n")
+
     if n_gpus_available < 2:
         print("  NOTE: Only 1 GPU found — will run single-GPU baselines only.")
         print("        Multi-GPU scaling results require ≥ 2 GPUs.\n")
 
     # Determine GPU counts to test (powers of 2 up to n_gpus_available)
-    gpu_counts: List[int] = []
-    c = 1
-    while c <= n_gpus_available:
-        gpu_counts.append(c)
-        c *= 2
+    # Only include multi-GPU counts if GPUs are identical
+    gpu_counts: list[int] = [1]
+    if gpus_identical:
+        c = 2
+        while c <= n_gpus_available:
+            gpu_counts.append(c)
+            c *= 2
 
-    all_rows: List[Dict[str, Any]] = []
+    all_rows: list[dict] = []
 
     # Per-model specs: (key, label, factory, train_loss_fn, infer_inputs_fn, train_inputs_fn, bpg)
     specs = [
@@ -260,7 +280,7 @@ def main() -> None:
         },
     ]
 
-    baseline: Dict[str, Dict[str, float]] = {}  # {model_key: {"train": x, "infer": x}}
+    baseline: dict[str, dict[str, float]] = {}  # {model_key: {"train": x, "infer": x}}
 
     for spec in specs:
         key    = spec["key"]
@@ -295,7 +315,14 @@ def main() -> None:
                     "scaling_efficiency_pct": round(eff_train, 1),
                     "status": "success",
                 })
+            except torch.cuda.OutOfMemoryError as e:
+                torch.cuda.empty_cache()
+                short = str(e).split("\n")[0][:120]
+                print(f"    OOM (training, {n_gpu} GPU): {short}")
+                all_rows.append({"model": key, "mode": "training", "n_gpus": n_gpu,
+                                  "status": f"OOM: {short}"})
             except Exception as e:
+                torch.cuda.empty_cache()
                 print(f"    ERROR (training, {n_gpu} GPU): {e}")
                 all_rows.append({"model": key, "mode": "training", "n_gpus": n_gpu,
                                   "status": f"error: {e}"})
@@ -321,7 +348,14 @@ def main() -> None:
                     "scaling_efficiency_pct": round(eff_infer, 1),
                     "status": "success",
                 })
+            except torch.cuda.OutOfMemoryError as e:
+                torch.cuda.empty_cache()
+                short = str(e).split("\n")[0][:120]
+                print(f"    OOM (inference, {n_gpu} GPU): {short}")
+                all_rows.append({"model": key, "mode": "inference", "n_gpus": n_gpu,
+                                  "status": f"OOM: {short}"})
             except Exception as e:
+                torch.cuda.empty_cache()
                 print(f"    ERROR (inference, {n_gpu} GPU): {e}")
                 all_rows.append({"model": key, "mode": "inference", "n_gpus": n_gpu,
                                   "status": f"error: {e}"})

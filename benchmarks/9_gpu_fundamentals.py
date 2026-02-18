@@ -28,7 +28,6 @@ import argparse
 import sys
 import time
 from pathlib import Path
-from typing import Any, Dict, List
 
 import torch
 import torch.nn.functional as F
@@ -38,7 +37,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from benchmarks.benchmark_utils import (
     add_common_args,
     check_cuda_available,
+    cuda_sync,
     get_gpu_info,
+    median_time,
     print_gpu_banner,
     save_results,
     set_reproducibility,
@@ -58,29 +59,8 @@ from benchmarks.config import (
 
 # ──────────────────────────── helpers ─────────────────────────────────────────
 
-def _sync() -> None:
-    torch.cuda.synchronize()
-
-
-def _median_time(fn, warmup: int = FUND_WARMUP,
-                 repeats: int = FUND_REPEATS) -> float:
-    """Return median wall-clock time (seconds)."""
-    for _ in range(warmup):
-        fn()
-    _sync()
-    ts: List[float] = []
-    for _ in range(repeats):
-        _sync()
-        t0 = time.perf_counter()
-        fn()
-        _sync()
-        ts.append(time.perf_counter() - t0)
-    ts.sort()
-    return ts[len(ts) // 2]
-
-
 def _row(category: str, test: str, metric: str, value: float, unit: str,
-         dtype: str = "", notes: str = "") -> Dict[str, Any]:
+         dtype: str = "", notes: str = "") -> dict:
     return {
         "category": category,
         "test": test,
@@ -94,16 +74,16 @@ def _row(category: str, test: str, metric: str, value: float, unit: str,
 
 # ──────────────────────────── 1. Memory bandwidth ─────────────────────────────
 
-def bench_memory_bandwidth(device: torch.device) -> List[Dict[str, Any]]:
+def bench_memory_bandwidth(device: torch.device) -> list[dict]:
     print("\n── 1. Device Memory Bandwidth (D2D copy)")
     print(f"  {'Size':>10}  {'GB/s':>10}")
-    rows: List[Dict[str, Any]] = []
+    rows: list[dict] = []
     for size_bytes in FUND_BW_SIZES:
         n_floats = size_bytes // 4
         try:
             src = torch.randn(n_floats, device=device, dtype=torch.float32)
             dst = torch.empty_like(src)
-            t = _median_time(lambda: dst.copy_(src))
+            t = median_time(lambda: dst.copy_(src), FUND_WARMUP, FUND_REPEATS)
             gb_per_s = 2 * size_bytes / t / 1e9  # read + write
             label = f"{size_bytes // (1024*1024)} MB"
             print(f"  {label:>10}  {gb_per_s:>10.1f}")
@@ -121,7 +101,7 @@ def bench_memory_bandwidth(device: torch.device) -> List[Dict[str, Any]]:
 
 # ──────────────────────────── 2. PCIe bandwidth ───────────────────────────────
 
-def bench_pcie_bandwidth(device: torch.device) -> List[Dict[str, Any]]:
+def bench_pcie_bandwidth(device: torch.device) -> list[dict]:
     print("\n── 2. PCIe Bandwidth (Host ↔ Device)")
     size = FUND_PCIE_SIZE
     n_floats = size // 4
@@ -132,11 +112,11 @@ def bench_pcie_bandwidth(device: torch.device) -> List[Dict[str, Any]]:
     cpu_out = torch.empty(n_floats, pin_memory=True)
 
     # H2D
-    t_h2d = _median_time(lambda: gpu_buf.copy_(cpu_pinned))
+    t_h2d = median_time(lambda: gpu_buf.copy_(cpu_pinned), FUND_WARMUP, FUND_REPEATS)
     h2d_gbs = size / t_h2d / 1e9
 
     # D2H
-    t_d2h = _median_time(lambda: cpu_out.copy_(gpu_buf))
+    t_d2h = median_time(lambda: cpu_out.copy_(gpu_buf), FUND_WARMUP, FUND_REPEATS)
     d2h_gbs = size / t_d2h / 1e9
 
     print(f"  H2D ({label}): {h2d_gbs:.1f} GB/s")
@@ -151,18 +131,18 @@ def bench_pcie_bandwidth(device: torch.device) -> List[Dict[str, Any]]:
 
 # ──────────────────────────── 3. Kernel launch latency ────────────────────────
 
-def bench_kernel_launch_latency(device: torch.device) -> List[Dict[str, Any]]:
+def bench_kernel_launch_latency(device: torch.device) -> list[dict]:
     LAUNCHES = 10_000
     print(f"\n── 3. Kernel Launch Latency ({LAUNCHES:,} no-op launches)")
     tiny = torch.ones(1, device=device)
     for _ in range(200):
         _ = tiny + tiny  # warmup
-    _sync()
+    cuda_sync()
 
     t0 = time.perf_counter()
     for _ in range(LAUNCHES):
         _ = tiny + tiny
-    _sync()
+    cuda_sync()
     total = time.perf_counter() - t0
     latency_us = total / LAUNCHES * 1e6
     print(f"  Avg per launch: {latency_us:.2f} µs")
@@ -172,15 +152,15 @@ def bench_kernel_launch_latency(device: torch.device) -> List[Dict[str, Any]]:
 
 # ──────────────────────────── 4. FFT throughput ───────────────────────────────
 
-def bench_fft(device: torch.device) -> List[Dict[str, Any]]:
+def bench_fft(device: torch.device) -> list[dict]:
     print("\n── 4. FFT Throughput")
     print(f"  {'Size':>8}  {'Dtype':>5}  {'GB/s':>8}  {'GFLOPS':>8}")
-    rows: List[Dict[str, Any]] = []
+    rows: list[dict] = []
     for n in FUND_FFT_SIZES:
         for dtype, label in [(torch.float32, "FP32"), (torch.float64, "FP64")]:
             try:
                 x = torch.randn(n, dtype=dtype, device=device)
-                t = _median_time(lambda: torch.fft.rfft(x))
+                t = median_time(lambda: torch.fft.rfft(x), FUND_WARMUP, FUND_REPEATS)
                 # FLOPs for FFT: ~5 N log2(N)
                 flops = 5.0 * n * (n.bit_length() - 1)
                 gflops = flops / t / 1e9
@@ -210,9 +190,9 @@ def _nbody_step(pos: torch.Tensor, mass: torch.Tensor,
 
 
 def bench_nbody(device: torch.device, N: int = FUND_NBODY_N,
-                steps: int = FUND_NBODY_STEPS) -> List[Dict[str, Any]]:
+                steps: int = FUND_NBODY_STEPS) -> list[dict]:
     print(f"\n── 5. N-body Gravity Simulation (N={N}, steps={steps})")
-    rows: List[Dict[str, Any]] = []
+    rows: list[dict] = []
     for dtype, label in [(torch.float32, "FP32"), (torch.float64, "FP64")]:
         try:
             pos  = torch.randn(N, 3,  dtype=dtype, device=device)
@@ -224,7 +204,7 @@ def bench_nbody(device: torch.device, N: int = FUND_NBODY_N,
                     p = _nbody_step(p, mass)
                 return p
 
-            t = _median_time(_run, warmup=2, repeats=5)
+            t = median_time(_run, 2, 5)
             particle_steps_per_s = N * steps / t
             print(f"  {label}: {particle_steps_per_s/1e6:.2f} M particle-steps/s  "
                   f"({t*1000:.1f} ms/run)")
@@ -242,10 +222,10 @@ def bench_nbody(device: torch.device, N: int = FUND_NBODY_N,
 
 # ──────────────────────────── 6. Sparse matrix multiply (SpMM) ────────────────
 
-def bench_spmm(device: torch.device) -> List[Dict[str, Any]]:
+def bench_spmm(device: torch.device) -> list[dict]:
     print("\n── 6. Sparse Matrix Multiply (SpMM, CSR)")
     print(f"  {'Dim':>8}  {'Density':>8}  {'GFLOPS':>8}")
-    rows: List[Dict[str, Any]] = []
+    rows: list[dict] = []
     configs = [
         (4096,  0.01),
         (4096,  0.05),
@@ -263,7 +243,7 @@ def bench_spmm(device: torch.device) -> List[Dict[str, Any]]:
             sparse  = sparse.to_sparse_csr()
             dense   = torch.randn(dim, 512, device=device)
 
-            t = _median_time(lambda: torch.mm(sparse, dense))
+            t = median_time(lambda: torch.mm(sparse, dense), FUND_WARMUP, FUND_REPEATS)
             flops = 2.0 * nnz * 512
             gflops = flops / t / 1e9
             label = f"{dim}×{dim} d={density}"
@@ -282,7 +262,7 @@ def bench_spmm(device: torch.device) -> List[Dict[str, Any]]:
 
 def bench_stencil(device: torch.device,
                   size: int = FUND_STENCIL_SIZE,
-                  steps: int = FUND_STENCIL_STEPS) -> List[Dict[str, Any]]:
+                  steps: int = FUND_STENCIL_STEPS) -> list[dict]:
     """5-point 2D heat-equation stencil via roll operations."""
     print(f"\n── 7. 2-D Heat Stencil (5-point, {size}×{size}, {steps} steps)")
     grid = torch.randn(1, 1, size, size, device=device, dtype=torch.float32)
@@ -297,7 +277,7 @@ def bench_stencil(device: torch.device,
             g = g + 0.25 * F.conv2d(g, kernel, padding=1)
         return g
 
-    t = _median_time(_run, warmup=3, repeats=10)
+    t = median_time(_run, 3, 10)
     cell_updates = size * size * steps
     giga_updates = cell_updates / t / 1e9
     print(f"  {giga_updates:.2f} G cell-updates/s  ({t*1000:.1f} ms/run)")
@@ -310,15 +290,15 @@ def bench_stencil(device: torch.device,
 
 # ──────────────────────────── 8. Parallel reduction ──────────────────────────
 
-def bench_reduction(device: torch.device) -> List[Dict[str, Any]]:
+def bench_reduction(device: torch.device) -> list[dict]:
     print("\n── 8. Parallel Reduction (torch.sum)")
     print(f"  {'Elements':>12}  {'GB/s':>8}")
-    rows: List[Dict[str, Any]] = []
+    rows: list[dict] = []
     sizes = [1 << e for e in range(20, 29, 2)]  # 1M, 4M, 16M, 64M, 256M
     for n in sizes:
         try:
             x = torch.randn(n, device=device, dtype=torch.float32)
-            t = _median_time(lambda: torch.sum(x))
+            t = median_time(lambda: torch.sum(x), FUND_WARMUP, FUND_REPEATS)
             gb_s = n * 4 / t / 1e9
             label = f"{n // 1_000_000}M"
             print(f"  {label:>12}  {gb_s:>8.1f}")
@@ -335,10 +315,10 @@ def bench_reduction(device: torch.device) -> List[Dict[str, Any]]:
 
 # ──────────────────────────── 9. Conv2d throughput ───────────────────────────
 
-def bench_conv2d(device: torch.device) -> List[Dict[str, Any]]:
+def bench_conv2d(device: torch.device) -> list[dict]:
     print("\n── 9. Conv2d Throughput (224×224, batch=32)")
     print(f"  {'Kernel':>8}  {'Channels':>10}  {'GFLOPS':>8}")
-    rows: List[Dict[str, Any]] = []
+    rows: list[dict] = []
     configs = [
         (3, 64, 64),
         (3, 256, 256),
@@ -351,7 +331,7 @@ def bench_conv2d(device: torch.device) -> List[Dict[str, Any]]:
             x   = torch.randn(BS, c_in, H, W, device=device)
             w   = torch.randn(c_out, c_in, k, k, device=device)
             pad = k // 2
-            t = _median_time(lambda: F.conv2d(x, w, padding=pad))
+            t = median_time(lambda: F.conv2d(x, w, padding=pad), FUND_WARMUP, FUND_REPEATS)
             flops = 2.0 * BS * c_out * c_in * k * k * H * W
             gflops = flops / t / 1e9
             label = f"{k}×{k}"
@@ -370,10 +350,10 @@ def bench_conv2d(device: torch.device) -> List[Dict[str, Any]]:
 
 # ──────────────────────────── 10. Multi-head attention ───────────────────────
 
-def bench_attention(device: torch.device) -> List[Dict[str, Any]]:
+def bench_attention(device: torch.device) -> list[dict]:
     print("\n── 10. Scaled Dot-Product Attention (SDPA)")
     print(f"  {'SeqLen':>8}  {'Heads':>6}  {'Dtype':>5}  {'ms':>8}  {'GFLOPS':>8}")
-    rows: List[Dict[str, Any]] = []
+    rows: list[dict] = []
     BS = 8
     configs = [
         (512,   12, 64),
@@ -387,8 +367,9 @@ def bench_attention(device: torch.device) -> List[Dict[str, Any]]:
                 q = torch.randn(BS, n_heads, seq_len, d_head, dtype=dtype, device=device)
                 k = torch.randn(BS, n_heads, seq_len, d_head, dtype=dtype, device=device)
                 v = torch.randn(BS, n_heads, seq_len, d_head, dtype=dtype, device=device)
-                t = _median_time(
-                    lambda: F.scaled_dot_product_attention(q, k, v)
+                t = median_time(
+                    lambda: F.scaled_dot_product_attention(q, k, v),
+                    FUND_WARMUP, FUND_REPEATS,
                 )
                 # FLOPs: 2×BS×heads×SeqLen²×d_head (QK^T) + 2×BS×heads×SeqLen²×d_head (AV)
                 flops = 4.0 * BS * n_heads * seq_len * seq_len * d_head
@@ -425,7 +406,7 @@ def main() -> None:
     print_gpu_banner(gpu_info)
     set_reproducibility(args.seed)
 
-    all_rows: List[Dict[str, Any]] = []
+    all_rows: list[dict] = []
 
     all_rows += bench_memory_bandwidth(device)
     all_rows += bench_pcie_bandwidth(device)

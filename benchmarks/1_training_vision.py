@@ -11,7 +11,6 @@ import argparse
 import sys
 import time
 from pathlib import Path
-from typing import Any, Dict, List
 
 import torch
 import torch.nn as nn
@@ -43,12 +42,6 @@ from benchmarks.benchmark_utils import (
     set_tf32,
 )
 
-# ─── Model factory ────────────────────────────────────────────────────────────
-MODEL_FNS = {
-    "resnet50": models.resnet50,
-    "resnet101": models.resnet101,
-}
-
 
 def benchmark_model(
     model_name: str,
@@ -57,7 +50,7 @@ def benchmark_model(
     device: torch.device,
     warmup: int = VISION_TRAIN_WARMUP,
     iterations: int = VISION_TRAIN_ITERATIONS,
-) -> Dict[str, Any]:
+) -> dict:
     """Benchmark a single (model, precision, batch_size) configuration."""
 
     tag = f"{model_name} {precision.upper()} BS={batch_size}"
@@ -65,21 +58,18 @@ def benchmark_model(
 
     try:
         # Create model in FP32 (AMP handles precision internally)
-        model = MODEL_FNS[model_name](weights=None).to(device)
+        model = getattr(models, model_name)(weights=None).to(device)
         model.train()
 
         criterion = nn.CrossEntropyLoss().to(device)
         optimizer = torch.optim.SGD(model.parameters(), lr=0.01, momentum=0.9)
         scaler = get_grad_scaler(precision)
 
-        # FP8: use FP16 autocast (Tensor Cores use FP8 internally on supported HW)
-        effective_precision = "fp16" if precision == "fp8" else precision
-
         # Synthetic data (always FP32; autocast converts on the fly)
         images = torch.randn(batch_size, 3, VISION_IMAGE_SIZE, VISION_IMAGE_SIZE, device=device)
         targets = torch.randint(0, VISION_NUM_CLASSES, (batch_size,), device=device)
 
-        amp_ctx = get_amp_context(effective_precision)
+        amp_ctx = get_amp_context(precision)
 
         # Warmup
         for _ in range(warmup):
@@ -98,7 +88,7 @@ def benchmark_model(
         torch.cuda.synchronize()
 
         # Benchmark
-        times: List[float] = []
+        times: list[float] = []
         for _ in range(iterations):
             start = time.perf_counter()
             optimizer.zero_grad(set_to_none=True)
@@ -153,7 +143,7 @@ def benchmark_model(
 def main() -> None:
     parser = argparse.ArgumentParser(description="Vision Training Benchmark")
     add_common_args(parser)
-    parser.add_argument("--models", nargs="+", default=list(VISION_MODELS.keys()),
+    parser.add_argument("--models", nargs="+", default=VISION_MODELS,
                         help="Models to test (default: resnet50 resnet101)")
     parser.add_argument("--batch-sizes", nargs="+", type=int, default=None,
                         help="Override batch sizes (default: auto based on VRAM)")
@@ -188,7 +178,7 @@ def main() -> None:
         monitor = GPUMonitor(device_id=args.device)
         monitor.start()
 
-    results: List[Dict[str, Any]] = []
+    results: list[dict] = []
 
     for model_name in args.models:
         print(f"\n{model_name.upper()}")

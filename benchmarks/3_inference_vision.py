@@ -10,7 +10,6 @@ import argparse
 import sys
 import time
 from pathlib import Path
-from typing import Any, Dict, List
 
 import torch
 import torchvision.models as models
@@ -38,11 +37,6 @@ from benchmarks.benchmark_utils import (
     set_tf32,
 )
 
-MODEL_FNS = {
-    "resnet50": models.resnet50,
-    "resnet101": models.resnet101,
-}
-
 
 def benchmark_model(
     model_name: str,
@@ -51,21 +45,19 @@ def benchmark_model(
     device: torch.device,
     warmup: int = VISION_INFER_WARMUP,
     iterations: int = VISION_INFER_ITERATIONS,
-) -> Dict[str, Any]:
+) -> dict:
     """Benchmark a single inference configuration."""
 
     tag = f"{model_name} {precision.upper()} BS={batch_size}"
     print(f"  Testing: {tag}...", end=" ", flush=True)
 
     try:
-        model = MODEL_FNS[model_name](weights=None).to(device)
+        model = getattr(models, model_name)(weights=None).to(device)
         model.eval()
 
         images = torch.randn(batch_size, 3, VISION_IMAGE_SIZE, VISION_IMAGE_SIZE, device=device)
 
-        # FP8: use FP16 autocast (Tensor Cores use FP8 internally on supported HW)
-        effective_precision = "fp16" if precision == "fp8" else precision
-        amp_ctx = get_amp_context(effective_precision)
+        amp_ctx = get_amp_context(precision)
 
         # Warmup
         with torch.inference_mode():
@@ -76,7 +68,7 @@ def benchmark_model(
         torch.cuda.synchronize()
 
         # Benchmark
-        times: List[float] = []
+        times: list[float] = []
         with torch.inference_mode():
             for _ in range(iterations):
                 start = time.perf_counter()
@@ -125,7 +117,7 @@ def benchmark_model(
 def main() -> None:
     parser = argparse.ArgumentParser(description="Vision Inference Benchmark")
     add_common_args(parser)
-    parser.add_argument("--models", nargs="+", default=list(VISION_MODELS.keys()))
+    parser.add_argument("--models", nargs="+", default=VISION_MODELS)
     parser.add_argument("--batch-sizes", nargs="+", type=int, default=None)
     parser.add_argument("--warmup", type=int, default=VISION_INFER_WARMUP)
     parser.add_argument("--iterations", type=int, default=VISION_INFER_ITERATIONS)
@@ -157,7 +149,7 @@ def main() -> None:
         monitor = GPUMonitor(device_id=args.device)
         monitor.start()
 
-    results: List[Dict[str, Any]] = []
+    results: list[dict] = []
 
     for model_name in args.models:
         print(f"\n{model_name.upper()}")

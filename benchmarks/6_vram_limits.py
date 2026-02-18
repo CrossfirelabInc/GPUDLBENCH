@@ -15,7 +15,6 @@ import argparse
 import copy
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
 
 import torch
 from transformers import AutoConfig, AutoModelForCausalLM
@@ -33,12 +32,12 @@ from benchmarks.benchmark_utils import (
 )
 
 
-def _count_params(model: torch.nn.Module) -> float:
+def _count_params(model):
     """Return total parameter count in billions."""
     return sum(p.numel() for p in model.parameters()) / 1e9
 
 
-def test_model_size_limit(vram_gb: float, device: torch.device, base_config) -> Tuple[List[Dict], str]:
+def test_model_size_limit(vram_gb: float, device: torch.device, base_config) -> tuple[list[dict], str]:
     """Test maximum model size that can be loaded in FP16."""
 
     print("\n" + "=" * 70)
@@ -46,7 +45,7 @@ def test_model_size_limit(vram_gb: float, device: torch.device, base_config) -> 
     print("=" * 70)
     print()
 
-    results: List[Dict] = []
+    results: list[dict] = []
     max_label = "none"
 
     for entry in VRAM_TEST_MODELS:
@@ -117,7 +116,7 @@ def test_model_size_limit(vram_gb: float, device: torch.device, base_config) -> 
     return results, max_label
 
 
-def test_context_length_limit(vram_gb: float, device: torch.device, base_config) -> Tuple[List[Dict], int]:
+def test_context_length_limit(vram_gb: float, device: torch.device, base_config) -> tuple[list[dict], int]:
     """Test maximum context length for a ~7B-scale model."""
 
     print("\n" + "=" * 70)
@@ -131,7 +130,7 @@ def test_context_length_limit(vram_gb: float, device: torch.device, base_config)
         print("  SKIP: 7B config not found")
         return [], 0
 
-    results: List[Dict] = []
+    results: list[dict] = []
     max_context = 0
 
     for ctx_len in VRAM_CONTEXT_LENGTHS:

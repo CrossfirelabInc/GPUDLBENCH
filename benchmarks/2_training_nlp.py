@@ -11,7 +11,6 @@ import argparse
 import sys
 import time
 from pathlib import Path
-from typing import Any, Dict, List
 
 import torch
 from transformers import BertForSequenceClassification, BertConfig
@@ -51,7 +50,7 @@ def benchmark_model(
     device: torch.device,
     warmup: int = NLP_TRAIN_WARMUP,
     iterations: int = NLP_TRAIN_ITERATIONS,
-) -> Dict[str, Any]:
+) -> dict:
     """Benchmark a single (model, precision, batch_size) configuration."""
 
     tag = f"{model_name} {precision.upper()} BS={batch_size}"
@@ -71,10 +70,8 @@ def benchmark_model(
 
         optimizer = torch.optim.AdamW(model.parameters(), lr=5e-5)
 
-        # FP8: use FP16 autocast (Tensor Cores use FP8 internally on supported HW)
-        effective_precision = "fp16" if precision == "fp8" else precision
-        scaler = get_grad_scaler(effective_precision)
-        amp_ctx = get_amp_context(effective_precision)
+        scaler = get_grad_scaler(precision)
+        amp_ctx = get_amp_context(precision)
 
         # Synthetic data (long tensors; no casting needed)
         input_ids = torch.randint(0, config.vocab_size, (batch_size, NLP_SEQ_LENGTH), device=device)
@@ -98,7 +95,7 @@ def benchmark_model(
         torch.cuda.synchronize()
 
         # Benchmark
-        times: List[float] = []
+        times: list[float] = []
         for _ in range(iterations):
             start = time.perf_counter()
             optimizer.zero_grad(set_to_none=True)
@@ -186,7 +183,7 @@ def main() -> None:
         monitor = GPUMonitor(device_id=args.device)
         monitor.start()
 
-    results: List[Dict[str, Any]] = []
+    results: list[dict] = []
 
     for model_name in args.models:
         model_config = NLP_MODELS[model_name]
