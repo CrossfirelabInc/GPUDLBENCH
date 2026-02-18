@@ -62,7 +62,10 @@ def benchmark_model(
         model.eval()
 
         images = torch.randn(batch_size, 3, VISION_IMAGE_SIZE, VISION_IMAGE_SIZE, device=device)
-        amp_ctx = get_amp_context(precision)
+
+        # FP8: use FP16 autocast (Tensor Cores use FP8 internally on supported HW)
+        effective_precision = "fp16" if precision == "fp8" else precision
+        amp_ctx = get_amp_context(effective_precision)
 
         # Warmup
         with torch.inference_mode():

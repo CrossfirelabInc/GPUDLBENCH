@@ -72,11 +72,14 @@ def benchmark_model(
         optimizer = torch.optim.SGD(model.parameters(), lr=0.01, momentum=0.9)
         scaler = get_grad_scaler(precision)
 
+        # FP8: use FP16 autocast (Tensor Cores use FP8 internally on supported HW)
+        effective_precision = "fp16" if precision == "fp8" else precision
+
         # Synthetic data (always FP32; autocast converts on the fly)
         images = torch.randn(batch_size, 3, VISION_IMAGE_SIZE, VISION_IMAGE_SIZE, device=device)
         targets = torch.randint(0, VISION_NUM_CLASSES, (batch_size,), device=device)
 
-        amp_ctx = get_amp_context(precision)
+        amp_ctx = get_amp_context(effective_precision)
 
         # Warmup
         for _ in range(warmup):

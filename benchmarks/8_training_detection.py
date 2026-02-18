@@ -1,9 +1,14 @@
 #!/usr/bin/env python3
 """
-Benchmark 8 — Object Detection Training (Faster R-CNN)
+Benchmark 8 — Object Detection Training (Faster R-CNN + Mask R-CNN)
 
-Measures training throughput (images/second) for Faster R-CNN with ResNet-50 FPN.
-Uses AMP for FP16/BF16 (required because Faster R-CNN internals break with raw .half()).
+Measures training throughput (images/second) for:
+  • Faster R-CNN with ResNet-50 FPN  — 2-stage detection
+  • Mask R-CNN with ResNet-50 FPN    — detection + instance segmentation
+
+Uses AMP for FP16/BF16 (required because detection model internals break with
+raw .half()).  Both models share the same backbone and FPN, so the comparison
+isolates the cost of the mask prediction head.
 """
 
 import argparse
@@ -14,7 +19,10 @@ from typing import Any, Dict, List
 
 import torch
 import torchvision
-from torchvision.models.detection import fasterrcnn_resnet50_fpn
+from torchvision.models.detection import (
+    fasterrcnn_resnet50_fpn,
+    maskrcnn_resnet50_fpn,
+)
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -41,53 +49,90 @@ from benchmarks.benchmark_utils import (
 )
 
 
-def _make_dummy_targets(batch_size: int, device: torch.device, num_boxes: int = 5) -> list:
-    """Create valid dummy detection targets."""
+def _make_dummy_boxes(batch_size: int, device: torch.device,
+                      num_boxes: int = 5) -> List[Dict[str, torch.Tensor]]:
+    """Create valid dummy bounding-box targets (shared by both models)."""
     targets = []
     for _ in range(batch_size):
-        # Generate valid boxes: (x1, y1, x2, y2) where x2>x1, y2>y1, within image
         x1 = torch.rand(num_boxes, device=device) * (DETECTION_IMAGE_SIZE - 50)
         y1 = torch.rand(num_boxes, device=device) * (DETECTION_IMAGE_SIZE - 50)
-        x2 = x1 + torch.rand(num_boxes, device=device) * 49 + 1  # width 1–50
-        y2 = y1 + torch.rand(num_boxes, device=device) * 49 + 1  # height 1–50
+        x2 = x1 + torch.rand(num_boxes, device=device) * 49 + 1
+        y2 = y1 + torch.rand(num_boxes, device=device) * 49 + 1
         x2 = x2.clamp(max=DETECTION_IMAGE_SIZE)
         y2 = y2.clamp(max=DETECTION_IMAGE_SIZE)
-        boxes = torch.stack([x1, y1, x2, y2], dim=1)
-
         targets.append({
-            "boxes": boxes,
+            "boxes":  torch.stack([x1, y1, x2, y2], dim=1),
             "labels": torch.randint(1, DETECTION_NUM_CLASSES, (num_boxes,), device=device),
         })
     return targets
 
 
+def _make_dummy_targets(batch_size: int, device: torch.device,
+                        num_boxes: int = 5,
+                        with_masks: bool = False) -> List[Dict[str, torch.Tensor]]:
+    """
+    Create dummy detection targets. Pass *with_masks=True* for Mask R-CNN,
+    which additionally requires a binary mask per instance.
+    """
+    targets = _make_dummy_boxes(batch_size, device, num_boxes)
+    if with_masks:
+        for t in targets:
+            n = t["labels"].shape[0]
+            # One H×W binary mask per instance
+            t["masks"] = torch.zeros(
+                n, DETECTION_IMAGE_SIZE, DETECTION_IMAGE_SIZE,
+                dtype=torch.uint8, device=device,
+            )
+    return targets
+
+
+# Registry of supported detection models
+_MODEL_REGISTRY: Dict[str, Any] = {
+    "faster-rcnn-resnet50": {
+        "factory": fasterrcnn_resnet50_fpn,
+        "label":   "Faster R-CNN (ResNet-50 FPN)",
+        "masks":   False,
+    },
+    "mask-rcnn-resnet50": {
+        "factory": maskrcnn_resnet50_fpn,
+        "label":   "Mask R-CNN  (ResNet-50 FPN)",
+        "masks":   True,
+    },
+}
+
+
 def benchmark_model(
+    model_key: str,
     precision: str,
     batch_size: int,
     device: torch.device,
     warmup: int = DETECTION_WARMUP,
     iterations: int = DETECTION_ITERATIONS,
 ) -> Dict[str, Any]:
-    """Benchmark Faster R-CNN at a given precision and batch size."""
+    """Benchmark a detection model (Faster R-CNN or Mask R-CNN) at a given precision."""
 
-    tag = f"Faster R-CNN {precision.upper()} BS={batch_size}"
+    spec = _MODEL_REGISTRY[model_key]
+    tag = f"{spec['label']} {precision.upper()} BS={batch_size}"
     print(f"  Testing: {tag}...", end=" ", flush=True)
 
     try:
         # Always create model in FP32; AMP handles casting
-        model = fasterrcnn_resnet50_fpn(weights=None, num_classes=DETECTION_NUM_CLASSES)
+        model = spec["factory"](weights=None, num_classes=DETECTION_NUM_CLASSES)
         model = model.to(device)
         model.train()
 
         params = [p for p in model.parameters() if p.requires_grad]
         optimizer = torch.optim.SGD(params, lr=0.005, momentum=0.9, weight_decay=0.0005)
-        scaler = get_grad_scaler(precision)
-        amp_ctx = get_amp_context(precision)
+
+        # FP8: use FP16 autocast (Tensor Cores use FP8 internally on supported HW)
+        effective_precision = "fp16" if precision == "fp8" else precision
+        scaler = get_grad_scaler(effective_precision)
+        amp_ctx = get_amp_context(effective_precision)
 
         # Synthetic data — always FP32 images (AMP casts internally)
         images = [torch.randn(3, DETECTION_IMAGE_SIZE, DETECTION_IMAGE_SIZE, device=device)
                   for _ in range(batch_size)]
-        targets = _make_dummy_targets(batch_size, device)
+        targets = _make_dummy_targets(batch_size, device, with_masks=spec["masks"])
 
         # Warmup
         for _ in range(warmup):
@@ -131,7 +176,7 @@ def benchmark_model(
         torch.cuda.empty_cache()
 
         return {
-            "model": "faster-rcnn-resnet50",
+            "model": model_key,
             "precision": precision.upper(),
             "batch_size": batch_size,
             "avg_time_ms": round(avg_time * 1000, 2),
@@ -144,7 +189,7 @@ def benchmark_model(
             print("OOM")
             torch.cuda.empty_cache()
             return {
-                "model": "faster-rcnn-resnet50",
+                "model": model_key,
                 "precision": precision.upper(),
                 "batch_size": batch_size,
                 "avg_time_ms": None,
@@ -164,7 +209,8 @@ def main() -> None:
     args = parser.parse_args()
 
     print("=" * 70)
-    print("Object Detection Training Benchmark - Faster R-CNN")
+    print("Benchmark 8 — Object Detection Training")
+    print("Models: Faster R-CNN (ResNet-50 FPN) + Mask R-CNN (ResNet-50 FPN)")
     print("=" * 70)
     print()
 
@@ -191,13 +237,16 @@ def main() -> None:
 
     results: List[Dict[str, Any]] = []
 
-    print("FASTER R-CNN")
-    print("-" * 70)
-    for prec in precisions:
-        for bs in batch_sizes:
-            result = benchmark_model(prec, bs, device,
-                                     warmup=args.warmup, iterations=args.iterations)
-            results.append(result)
+    for model_key, spec in _MODEL_REGISTRY.items():
+        print(spec["label"].upper())
+        print("-" * 70)
+        for prec in precisions:
+            for bs in batch_sizes:
+                result = benchmark_model(model_key, prec, bs, device,
+                                         warmup=args.warmup,
+                                         iterations=args.iterations)
+                results.append(result)
+        print()
 
     hw_stats = monitor.stop() if monitor else {}
 
@@ -208,17 +257,26 @@ def main() -> None:
     )
 
     print("\n" + "=" * 70)
-    print("Object Detection Training Benchmark Complete!")
+    print("Benchmark 8 — Object Detection Training Complete!")
     print("=" * 70)
     print(f"\nResults saved to:\n  - {csv_path}\n  - {json_path}\n")
 
-    print("Summary (Best Results):")
+    print("Summary (Best Throughput per Model/Precision):")
     print("-" * 70)
-    for prec in precisions:
-        hits = [r for r in results if r["precision"] == prec.upper() and r["status"] == "success"]
-        if hits:
-            best = max(hits, key=lambda x: x["throughput_img_per_sec"] or 0)
-            print(f"  Faster R-CNN {prec.upper()}: {best['throughput_img_per_sec']:.2f} img/s (BS={best['batch_size']})")
+    for model_key, spec in _MODEL_REGISTRY.items():
+        for prec in precisions:
+            hits = [
+                r for r in results
+                if r["model"] == model_key
+                and r["precision"] == prec.upper()
+                and r["status"] == "success"
+            ]
+            if hits:
+                best = max(hits, key=lambda x: x["throughput_img_per_sec"] or 0)
+                label = spec["label"]
+                print(f"  {label} {prec.upper():>5s}: "
+                      f"{best['throughput_img_per_sec']:.2f} img/s "
+                      f"(BS={best['batch_size']})")
 
 
 if __name__ == "__main__":

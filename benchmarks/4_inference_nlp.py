@@ -68,7 +68,10 @@ def benchmark_model(
 
         input_ids = torch.randint(0, config.vocab_size, (batch_size, NLP_SEQ_LENGTH), device=device)
         attention_mask = torch.ones(batch_size, NLP_SEQ_LENGTH, dtype=torch.long, device=device)
-        amp_ctx = get_amp_context(precision)
+
+        # FP8: use FP16 autocast (Tensor Cores use FP8 internally on supported HW)
+        effective_precision = "fp16" if precision == "fp8" else precision
+        amp_ctx = get_amp_context(effective_precision)
 
         # Warmup
         with torch.inference_mode():

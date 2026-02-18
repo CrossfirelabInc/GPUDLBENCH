@@ -59,17 +59,124 @@ def get_gpu_info(device_id: int = 0) -> Dict[str, Any]:
     props = torch.cuda.get_device_properties(device_id)
     return {
         "gpu_name": props.name,
-        "vram_gb": round(props.total_mem / (1024 ** 3), 1),
+        "vram_gb": round(props.total_memory / (1024 ** 3), 1),
         "compute_capability": f"{props.major}.{props.minor}",
         "sm_count": props.multi_processor_count,
         "device_id": device_id,
     }
 
 
+def get_system_info(device_id: int = 0) -> Dict[str, Any]:
+    """
+    Collect comprehensive environment version info for reproducibility.
+
+    Returns a dict with driver, CUDA, cuDNN, PyTorch, Python, OS versions, etc.
+    """
+    import platform as _platform
+
+    info: Dict[str, Any] = {}
+
+    # ── Python ────────────────────────────────────────────────────────────
+    info["python_version"] = _platform.python_version()
+
+    # ── OS ────────────────────────────────────────────────────────────────
+    info["os"] = f"{_platform.system()} {_platform.release()}"
+    info["os_version"] = _platform.version()
+
+    # ── PyTorch ───────────────────────────────────────────────────────────
+    info["pytorch_version"] = torch.__version__
+    info["pytorch_cuda_version"] = getattr(torch.version, "cuda", None)  # e.g. "12.4"
+
+    # ── cuDNN ─────────────────────────────────────────────────────────────
+    if torch.backends.cudnn.is_available():
+        info["cudnn_version"] = str(torch.backends.cudnn.version())
+    else:
+        info["cudnn_version"] = None
+
+    # ── NVIDIA driver version ─────────────────────────────────────────────
+    try:
+        r = subprocess.run(
+            ["nvidia-smi", "--query-gpu=driver_version", "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if r.returncode == 0:
+            info["nvidia_driver_version"] = r.stdout.strip().split("\n")[0]
+        else:
+            info["nvidia_driver_version"] = None
+    except Exception:
+        info["nvidia_driver_version"] = None
+
+    # ── CUDA toolkit (nvcc) version ───────────────────────────────────────
+    try:
+        import shutil as _shutil
+        nvcc = _shutil.which("nvcc")
+        if nvcc:
+            r = subprocess.run(
+                ["nvcc", "--version"], capture_output=True, text=True, timeout=5,
+            )
+            import re as _re
+            m = _re.search(r"release (\d+\.\d+)", r.stdout)
+            info["cuda_toolkit_version"] = m.group(1) if m else None
+        else:
+            info["cuda_toolkit_version"] = None
+    except Exception:
+        info["cuda_toolkit_version"] = None
+
+    # ── GPU power info ────────────────────────────────────────────────────
+    try:
+        r = subprocess.run(
+            ["nvidia-smi",
+             "--query-gpu=power.limit,power.default_limit,power.max_limit,enforced.power.limit",
+             "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if r.returncode == 0:
+            parts = [p.strip() for p in r.stdout.strip().split("\n")[0].split(",")]
+            info["gpu_power_limit_w"] = float(parts[0]) if parts[0] not in ("[N/A]", "") else None
+            info["gpu_power_default_w"] = float(parts[1]) if len(parts) > 1 and parts[1] not in ("[N/A]", "") else None
+            info["gpu_power_max_w"] = float(parts[2]) if len(parts) > 2 and parts[2] not in ("[N/A]", "") else None
+            info["gpu_power_enforced_w"] = float(parts[3]) if len(parts) > 3 and parts[3] not in ("[N/A]", "") else None
+        else:
+            info["gpu_power_limit_w"] = None
+            info["gpu_power_default_w"] = None
+    except Exception:
+        info["gpu_power_limit_w"] = None
+        info["gpu_power_default_w"] = None
+
+    # ── Optional library versions ─────────────────────────────────────────
+    for pkg in ["transformers", "accelerate", "numpy", "pillow", "datasets"]:
+        try:
+            mod = __import__(pkg)
+            info[f"{pkg}_version"] = getattr(mod, "__version__", "unknown")
+        except ImportError:
+            info[f"{pkg}_version"] = None
+
+    return info
+
+
 def supports_bf16(device_id: int = 0) -> bool:
     """BF16 requires compute capability >= 8.0 (Ampere+)."""
     props = torch.cuda.get_device_properties(device_id)
     return props.major >= 8
+
+
+def supports_fp8(device_id: int = 0) -> bool:
+    """
+    FP8 (float8_e4m3fn) requires compute capability >= 8.9 (Ada Lovelace / Hopper / Blackwell).
+
+    - Ada Lovelace (RTX 40xx): CC 8.9  — FP8 inference
+    - Hopper (H100):           CC 9.0  — FP8 training + inference
+    - Blackwell (B-series):    CC 10.0 — native FP8 training + inference
+    """
+    props = torch.cuda.get_device_properties(device_id)
+    # FP8 tensor core support starts at CC 8.9 (Ada) and above
+    if props.major > 9:
+        return True  # Blackwell+
+    if props.major == 9:
+        return True  # Hopper
+    if props.major == 8 and props.minor >= 9:
+        return True  # Ada Lovelace
+    return False
 
 
 def supports_tf32(device_id: int = 0) -> bool:
@@ -84,7 +191,9 @@ def print_gpu_banner(info: Dict[str, Any]) -> None:
     print(f"Compute Capability: {info['compute_capability']}")
     print(f"SM Count: {info['sm_count']}")
     bf16 = "Yes" if supports_bf16(info['device_id']) else "No"
+    fp8 = "Yes" if supports_fp8(info['device_id']) else "No"
     print(f"BF16 Support: {bf16}")
+    print(f"FP8 Support: {fp8}")
     print()
 
 
@@ -217,20 +326,22 @@ def get_amp_context(precision: str, device_type: str = "cuda"):
     Parameters
     ----------
     precision : str
-        One of "fp32", "fp16", "bf16".
+        One of "fp32", "fp16", "bf16", "fp8".
     device_type : str
         Typically "cuda".
 
     Returns
     -------
-    torch.amp.autocast context manager (or nullcontext for fp32).
+    torch.amp.autocast context manager (or nullcontext for fp32/fp8).
+
+    Note: FP8 does not use autocast; callers handle float8 casting manually.
     """
     if precision == "fp16":
         return torch.amp.autocast(device_type=device_type, dtype=torch.float16)
     elif precision == "bf16":
         return torch.amp.autocast(device_type=device_type, dtype=torch.bfloat16)
     else:
-        # FP32 — no autocasting
+        # FP32 and FP8 — no autocasting (FP8 uses manual dtype conversion)
         import contextlib
         return contextlib.nullcontext()
 
@@ -247,10 +358,13 @@ def get_grad_scaler(precision: str) -> Optional[torch.amp.GradScaler]:
 
 
 def filter_precisions_for_gpu(precisions: List[str], device_id: int = 0) -> List[str]:
-    """Remove bf16 from the list if the GPU does not support it."""
+    """Remove bf16/fp8 from the list if the GPU does not support them."""
+    result = list(precisions)
     if not supports_bf16(device_id):
-        return [p for p in precisions if p != "bf16"]
-    return list(precisions)
+        result = [p for p in result if p != "bf16"]
+    if not supports_fp8(device_id):
+        result = [p for p in result if p != "fp8"]
+    return result
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -322,6 +436,7 @@ def save_results(
         "vram_gb": gpu_info["vram_gb"],
         "compute_capability": gpu_info["compute_capability"],
         "timestamp": datetime.now().isoformat(),
+        "system_info": get_system_info(gpu_info.get("device_id", 0)),
         "results": results,
     }
     if extra_meta:

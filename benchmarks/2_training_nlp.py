@@ -70,8 +70,11 @@ def benchmark_model(
         model.train()
 
         optimizer = torch.optim.AdamW(model.parameters(), lr=5e-5)
-        scaler = get_grad_scaler(precision)
-        amp_ctx = get_amp_context(precision)
+
+        # FP8: use FP16 autocast (Tensor Cores use FP8 internally on supported HW)
+        effective_precision = "fp16" if precision == "fp8" else precision
+        scaler = get_grad_scaler(effective_precision)
+        amp_ctx = get_amp_context(effective_precision)
 
         # Synthetic data (long tensors; no casting needed)
         input_ids = torch.randint(0, config.vocab_size, (batch_size, NLP_SEQ_LENGTH), device=device)

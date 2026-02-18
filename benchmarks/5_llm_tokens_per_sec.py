@@ -3,7 +3,7 @@
 Benchmark 5 — LLM Token Generation (llama.cpp)
 
 Measures tokens/second and time-to-first-token for GGUF models.
-Uses huggingface_hub for reliable downloads instead of wget.
+Models must be pre-downloaded via install.py.
 Based on GamersNexus methodology.
 """
 
@@ -20,9 +20,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from benchmarks.config import (
     LLM_MODELS,
+    LLM_MODEL_SETS,
     LLM_NUM_TOKENS,
     LLM_PROMPT,
     LLM_TIMEOUT_SECONDS,
+    MODELS_DIR,
+    get_llm_models,
 )
 from benchmarks.benchmark_utils import (
     add_common_args,
@@ -37,95 +40,74 @@ from benchmarks.benchmark_utils import (
 
 def find_llama_cli() -> Optional[Path]:
     """
-    Locate the llama-cli binary.
+    Locate the best llama.cpp binary for benchmarking.
 
-    Search order:
+    Prefers llama-completion (non-interactive batch mode) over llama-cli.
+
+    Search order per binary:
       1. LLAMA_CPP_PATH env var
-      2. ~/llama.cpp/build/bin/llama-cli  (CMake build)
-      3. ~/llama.cpp/llama-cli            (legacy Makefile build)
-      4. llama-cli on $PATH
+      2. <project>/llama.cpp/build/bin/  (CMake build)
+      3. ~/llama.cpp/build/bin/
+      4. binary on $PATH
     """
+    # Binary preference order: llama-completion is non-interactive by design,
+    # llama-cli requires --no-conversation flag (newer builds default to chat mode)
+    binaries = ["llama-completion", "llama-cli"]
+
     # 1. Env var
     env_path = os.environ.get("LLAMA_CPP_PATH")
     if env_path:
         p = Path(env_path)
         if p.is_file():
             return p
-        # Maybe it's a directory
-        for candidate in [p / "build" / "bin" / "llama-cli", p / "llama-cli"]:
+        # Maybe it's a directory — search for preferred binaries
+        for binary in binaries:
+            for candidate in [p / "build" / "bin" / binary, p / binary]:
+                if candidate.exists():
+                    return candidate
+
+    # 2/3. Project-local and home dir
+    home = Path.home()
+    project_dir = Path(__file__).resolve().parent.parent
+    for binary in binaries:
+        for candidate in [
+            project_dir / "llama.cpp" / "build" / "bin" / binary,
+            project_dir / "llama.cpp" / binary,
+            home / "llama.cpp" / "build" / "bin" / binary,
+            home / "llama.cpp" / binary,
+        ]:
             if candidate.exists():
                 return candidate
 
-    # 2/3. Home dir
-    home = Path.home()
-    for candidate in [
-        home / "llama.cpp" / "build" / "bin" / "llama-cli",
-        home / "llama.cpp" / "llama-cli",
-    ]:
-        if candidate.exists():
-            return candidate
-
     # 4. On PATH
-    try:
-        result = subprocess.run(["which", "llama-cli"], capture_output=True, text=True)
-        if result.returncode == 0:
-            return Path(result.stdout.strip())
-    except FileNotFoundError:
-        pass
+    import shutil
+    for binary in binaries:
+        found = shutil.which(binary)
+        if found:
+            return Path(found)
 
     return None
 
 
-def download_model(model: dict, models_dir: Path) -> Optional[Path]:
-    """
-    Download a GGUF model using huggingface_hub (reliable, with retry).
-
-    Falls back to wget/curl if huggingface_hub is unavailable.
-    """
+def find_model(model: dict, models_dir: Path) -> Optional[Path]:
+    """Check if a pre-downloaded GGUF model exists. Returns path or None."""
     model_path = models_dir / model["filename"]
-
     if model_path.exists():
-        print(f"    Model already downloaded: {model_path.name}")
+        print(f"    Model ready: {model_path.name}")
         return model_path
-
-    print(f"    Downloading {model['name']} ({model['size_gb']:.1f}GB)...")
-
-    # Prefer huggingface_hub
-    try:
-        from huggingface_hub import hf_hub_download
-
-        downloaded = hf_hub_download(
-            repo_id=model["repo_id"],
-            filename=model["filename"],
-            local_dir=str(models_dir),
-            local_dir_use_symlinks=False,
-        )
-        print(f"    Download complete: {Path(downloaded).name}")
-        return Path(downloaded)
-    except ImportError:
-        logger.warning("huggingface_hub not installed; falling back to curl")
-    except Exception as e:
-        logger.warning(f"huggingface_hub download failed: {e}; falling back to curl")
-
-    # Fallback: curl (more universal than wget)
-    url = f"https://huggingface.co/{model['repo_id']}/resolve/main/{model['filename']}"
-    try:
-        subprocess.run(
-            ["curl", "-L", "-o", str(model_path), "--progress-bar", url],
-            check=True,
-        )
-        print(f"    Download complete")
-        return model_path
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        print(f"    Download FAILED")
-        return None
+    print(f"    Model not found: {model_path.name}")
+    print(f"    Run 'python install.py' to download all models.")
+    return None
 
 
-def parse_llama_output(stderr: str) -> Dict[str, Any]:
+def parse_llama_output(output: str) -> Dict[str, Any]:
     """
-    Parse llama.cpp timing output from stderr.
+    Parse llama.cpp timing output from stderr and/or stdout.
 
-    Handles multiple output format variations across llama.cpp versions.
+    Handles multiple output format variations across llama.cpp versions:
+      - Old format: "eval time = 12345.67 ms / 512 tokens ( 24.13 ms per token, 41.44 tokens per second)"
+      - New format: "[ Prompt: 652.8 t/s | Generation: 43.8 t/s ]"
+      - perf timings: "llama_perf_context_print: eval time = ..."
     """
     result: Dict[str, Any] = {
         "tokens_generated": None,
@@ -134,18 +116,27 @@ def parse_llama_output(stderr: str) -> Dict[str, Any]:
         "time_to_first_token_ms": None,
     }
 
-    for line in stderr.split("\n"):
-        # Prompt eval time → TTFT
-        if "prompt eval time" in line.lower() or ("llama_print_timings" in line and "prompt eval" in line):
+    for line in output.split("\n"):
+        # ── New compact format: [ Prompt: 652.8 t/s | Generation: 43.8 t/s ] ──
+        gen_match = re.search(r"Generation:\s*([\.\d]+)\s*t/s", line)
+        if gen_match:
+            result["tokens_per_second"] = round(float(gen_match.group(1)), 2)
+
+        prompt_match = re.search(r"Prompt:\s*([\.\d]+)\s*t/s", line)
+        if prompt_match:
+            # Approximate TTFT from prompt speed (not exact but useful)
+            pass  # TTFT is better captured from the old format if available
+
+        # ── Old format: prompt eval time ──
+        if "prompt eval time" in line.lower() or ("llama_perf" in line and "prompt eval" in line):
             match = re.search(r"([\d.]+)\s*ms\s*/\s*(\d+)\s*tokens", line)
             if match:
                 total_ms = float(match.group(1))
                 result["time_to_first_token_ms"] = round(total_ms, 2)
 
-        # Eval time → tokens/sec
+        # ── Old format: eval time (generation) ──
         if ("eval time" in line and "prompt" not in line.lower()) or \
-           ("llama_print_timings" in line and "eval time" in line and "prompt" not in line):
-            # "eval time = 12345.67 ms / 512 tokens ( 24.13 ms per token, 41.44 tokens per second)"
+           ("llama_perf" in line and "eval time" in line and "prompt" not in line):
             match = re.search(r"([\d.]+)\s*ms\s*/\s*(\d+)\s*tokens", line)
             if match:
                 total_ms = float(match.group(1))
@@ -180,22 +171,33 @@ def benchmark_model(model: dict, model_path: Optional[Path], llama_cli: Path) ->
         return {**base_result, "status": "download_failed"}
 
     try:
+        # Build the command
+        cmd = [
+            str(llama_cli),
+            "-m", str(model_path),
+            "-n", str(LLM_NUM_TOKENS),
+            "-p", LLM_PROMPT,
+            "-ngl", "999",       # Offload all layers to GPU
+            "--temp", "0.7",
+            "-b", "512",
+            "--perf",            # Enable perf timings in output
+        ]
+
+        # If using llama-cli (not llama-completion), disable conversation mode
+        if llama_cli.name == "llama-cli":
+            cmd.extend(["--no-conversation", "--single-turn"])
+
         result = subprocess.run(
-            [
-                str(llama_cli),
-                "-m", str(model_path),
-                "-n", str(LLM_NUM_TOKENS),
-                "-p", LLM_PROMPT,
-                "-ngl", "999",       # Offload all layers to GPU
-                "--temp", "0.7",
-                "-b", "512",
-            ],
+            cmd,
             capture_output=True,
             text=True,
             timeout=LLM_TIMEOUT_SECONDS,
+            stdin=subprocess.DEVNULL,
         )
 
-        parsed = parse_llama_output(result.stderr)
+        # Parse from both stdout and stderr (different versions put timings in different streams)
+        combined_output = (result.stdout or "") + "\n" + (result.stderr or "")
+        parsed = parse_llama_output(combined_output)
 
         if parsed["tokens_per_second"]:
             print(f"{parsed['tokens_per_second']:.1f} t/s (TTFT: {parsed.get('time_to_first_token_ms', 'N/A')} ms)")
@@ -224,6 +226,9 @@ def main() -> None:
                         help="Directory to store GGUF models (default: ~/llama.cpp/models)")
     parser.add_argument("--llama-path", type=str, default=None,
                         help="Path to llama-cli binary or llama.cpp dir")
+    parser.add_argument("--model-set", type=str, default="default",
+                        choices=sorted(LLM_MODEL_SETS.keys()),
+                        help="Which model set to benchmark (default: default)")
     args = parser.parse_args()
 
     print("=" * 70)
@@ -238,13 +243,13 @@ def main() -> None:
 
     llama_cli = find_llama_cli()
     if not llama_cli:
-        print("ERROR: llama-cli not found!")
+        print("ERROR: llama-completion / llama-cli not found!")
         print("Set LLAMA_CPP_PATH env var or use --llama-path, or install llama.cpp:")
         print("  git clone https://github.com/ggerganov/llama.cpp")
         print("  cd llama.cpp && cmake -B build -DGGML_CUDA=ON && cmake --build build --config Release")
         sys.exit(1)
 
-    print(f"llama-cli: {llama_cli}")
+    print(f"llama binary: {llama_cli} ({llama_cli.name})")
 
     check_cuda_available()
     gpu_info = get_gpu_info(args.device)
@@ -252,13 +257,15 @@ def main() -> None:
 
     vram_gb = gpu_info["vram_gb"]
 
-    # Models directory
-    models_dir = Path(args.models_dir) if args.models_dir else (llama_cli.parent.parent.parent / "models")
-    if not models_dir.exists():
-        models_dir = Path.home() / "llama.cpp" / "models"
+    # Models directory (created by config.py on import)
+    models_dir = Path(args.models_dir) if args.models_dir else MODELS_DIR
     models_dir.mkdir(parents=True, exist_ok=True)
 
     os.environ["CUDA_VISIBLE_DEVICES"] = str(args.device)
+
+    # Resolve model set
+    models = get_llm_models(args.model_set)
+    print(f"Model set: {args.model_set} ({len(models)} models)")
 
     monitor = None
     if not args.no_monitor:
@@ -267,8 +274,8 @@ def main() -> None:
 
     results: List[Dict[str, Any]] = []
 
-    for i, model in enumerate(LLM_MODELS, 1):
-        print(f"\n[{i}/{len(LLM_MODELS)}] {model['name']} ({model['size_gb']:.1f}GB, {model['quant']})")
+    for i, model in enumerate(models, 1):
+        print(f"\n[{i}/{len(models)}] {model['name']} ({model['size_gb']:.1f}GB, {model['quant']})")
         print("-" * 70)
 
         # VRAM check (leave 10% headroom)
@@ -286,7 +293,7 @@ def main() -> None:
             })
             continue
 
-        model_path = download_model(model, models_dir)
+        model_path = find_model(model, models_dir)
         result = benchmark_model(model, model_path, llama_cli)
         results.append(result)
         time.sleep(2)  # Cool-down between models
@@ -298,6 +305,7 @@ def main() -> None:
         extra_meta={
             "prompt": LLM_PROMPT,
             "num_tokens": LLM_NUM_TOKENS,
+            "model_set": args.model_set,
             "hw_monitor": hw_stats if hw_stats else None,
         },
         output_dir=args.output_dir,
