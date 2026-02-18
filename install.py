@@ -12,6 +12,7 @@ Usage:
 """
 
 import argparse
+import json
 import os
 import platform
 import re
@@ -210,6 +211,7 @@ TORCH_VERSION = "2.6.0"
 TORCHVISION_VERSION = "0.21.0"
 TORCHAUDIO_VERSION = "2.6.0"
 RECOMMENDED_CUDA_TOOLKIT = "12.4"  # nvcc version that matches pinned PyTorch wheels
+GPU_STATE_FILE = ".gpu_state.json"  # tracks GPU info across installs for swap detection
 
 
 def install_pytorch(venv_dir, cuda_suffix):
@@ -270,66 +272,235 @@ def _find_cmake(venv_dir):
     return None
 
 
-def _check_cuda_toolkit_version():
-    """Warn if installed nvcc version differs from the recommended one."""
-    nvcc = shutil.which("nvcc")
-    if not nvcc:
-        return
-    r = run(["nvcc", "--version"], capture=True, check=False)
-    m = re.search(r"release (\d+\.\d+)", r.stdout)
-    if m:
-        installed = m.group(1)
-        if installed != RECOMMENDED_CUDA_TOOLKIT:
-            print(f"  WARNING: nvcc reports CUDA {installed}, but pinned PyTorch"
-                  f" wheels target CUDA {RECOMMENDED_CUDA_TOOLKIT}.")
-            print(f"           This may cause mismatches. Consider installing"
-                  f" CUDA toolkit {RECOMMENDED_CUDA_TOOLKIT}.")
-        else:
-            print(f"  CUDA toolkit {installed} matches recommended version. Good.")
+# ─── GPU architecture → CUDA version mapping ─────────────────────────────────
+
+def _min_cuda_for_sm(sm: int) -> tuple[int, int]:
+    """Return (major, minor) minimum CUDA toolkit version for a compute capability.
+
+    The *sm* parameter is a condensed integer, e.g. 86 for sm_8.6.
+    """
+    if sm >= 100:  return (12, 8)   # Blackwell  (sm_100, sm_120)
+    if sm >= 90:   return (12, 0)   # Hopper     (sm_90)
+    if sm >= 89:   return (11, 8)   # Ada Lovelace (sm_89)
+    if sm >= 80:   return (11, 0)   # Ampere     (sm_80-87)
+    if sm >= 75:   return (10, 0)   # Turing     (sm_75)
+    if sm >= 70:   return (9, 0)    # Volta      (sm_70-72)
+    if sm >= 60:   return (8, 0)    # Pascal     (sm_60-62)
+    return (7, 0)                   # Maxwell / Kepler
 
 
-def ensure_cuda_toolkit():
-    """Install the CUDA toolkit (nvcc) if not already available."""
-    if shutil.which("nvcc"):
-        _check_cuda_toolkit_version()
-        return True  # Already available
+def _recommended_cuda_for_sm(sm: int) -> str:
+    """Return recommended CUDA toolkit version string to install."""
+    if sm >= 100:  return "12.8"
+    return "12.4"   # Covers Pascal through Hopper
 
-    system = platform.system()
-    if system != "Linux":
-        print("  WARNING: nvcc not found. Please install the CUDA toolkit manually.")
+
+def _parse_cuda_ver(ver_str: str) -> tuple[int, int]:
+    """Parse '12.4' → (12, 4)."""
+    parts = ver_str.split(".")
+    return (int(parts[0]), int(parts[1]) if len(parts) > 1 else 0)
+
+
+def _nvcc_version(nvcc_path: str) -> tuple[int, int] | None:
+    """Get CUDA version from an nvcc binary.  Returns (major, minor) or None."""
+    try:
+        r = subprocess.run([nvcc_path, "--version"],
+                           capture_output=True, text=True, timeout=10)
+        m = re.search(r"release (\d+)\.(\d+)", r.stdout)
+        if m:
+            return (int(m.group(1)), int(m.group(2)))
+    except Exception:
+        pass
+    return None
+
+
+def _find_suitable_nvcc(min_cuda: tuple[int, int]) -> str | None:
+    """Scan the system for an nvcc that meets *min_cuda*.  Returns path or None.
+
+    Search order:
+      1. nvcc on $PATH
+      2. /usr/local/cuda/bin/nvcc  (default symlink)
+      3. /usr/local/cuda-*/bin/nvcc  (versioned installs, newest first)
+    """
+    seen: set[str] = set()
+    candidates: list[str] = []
+
+    def _add(p: str):
+        rp = str(Path(p).resolve())
+        if rp not in seen:
+            seen.add(rp)
+            candidates.append(p)
+
+    system_nvcc = shutil.which("nvcc")
+    if system_nvcc:
+        _add(system_nvcc)
+
+    default = Path("/usr/local/cuda/bin/nvcc")
+    if default.exists():
+        _add(str(default))
+
+    for p in sorted(Path("/usr/local").glob("cuda-*/bin/nvcc"), reverse=True):
+        _add(str(p))
+
+    for nvcc_path in candidates:
+        ver = _nvcc_version(nvcc_path)
+        if ver and ver >= min_cuda:
+            return nvcc_path
+    return None
+
+
+def _detect_os_for_nvidia_repo() -> tuple[str | None, str | None]:
+    """Read /etc/os-release to determine repo URL components."""
+    os_rel = Path("/etc/os-release")
+    if not os_rel.exists():
+        return None, None
+    text = os_rel.read_text()
+    id_m  = re.search(r'^ID=["]?([\w]+)', text, re.MULTILINE)
+    ver_m = re.search(r'^VERSION_ID=["\']?(\d+\.\d+)', text, re.MULTILINE)
+    if not id_m or not ver_m:
+        return None, None
+    os_id  = id_m.group(1)   # "ubuntu"
+    os_ver = ver_m.group(1).replace(".", "")  # "22.04" → "2204"
+    return (os_id, os_ver) if os_id in ("ubuntu", "debian") else (None, None)
+
+
+def _install_cuda_via_nvidia_repo(target_ver: str) -> bool:
+    """Install CUDA toolkit from NVIDIA's official apt repo (Ubuntu/Debian)."""
+    os_id, os_ver = _detect_os_for_nvidia_repo()
+    if not os_id:
         return False
 
-    print("  nvcc not found. Installing CUDA toolkit...")
+    arch = platform.machine()
+    repo_arch = {"x86_64": "x86_64", "aarch64": "sbsa"}.get(arch)
+    if not repo_arch:
+        print(f"  Unsupported CPU architecture for NVIDIA repo: {arch}")
+        return False
 
+    keyring_url = (
+        f"https://developer.download.nvidia.com/compute/cuda/repos/"
+        f"{os_id}{os_ver}/{repo_arch}/cuda-keyring_1.1-1_all.deb"
+    )
+    maj, mn = _parse_cuda_ver(target_ver)
+    pkg = f"cuda-toolkit-{maj}-{mn}"
+
+    print(f"  Installing {pkg} from NVIDIA repo...")
+    print(f"  Keyring URL: {keyring_url}")
+    try:
+        import urllib.request
+        keyring_deb = "/tmp/cuda-keyring.deb"
+        urllib.request.urlretrieve(keyring_url, keyring_deb)
+        _run_sudo(["dpkg", "-i", keyring_deb])
+        _run_sudo(["apt-get", "update", "-qq"])
+        _run_sudo(["apt-get", "install", "-y", "-qq", pkg])
+    except Exception as e:
+        print(f"  Failed to install from NVIDIA repo: {e}")
+        return False
+
+    # The package installs into /usr/local/cuda-X.Y
+    cuda_bin = Path(f"/usr/local/cuda-{maj}.{mn}/bin")
+    if cuda_bin.exists():
+        os.environ["PATH"] = f"{cuda_bin}:{os.environ.get('PATH', '')}"
+        print(f"  Added {cuda_bin} to PATH")
+    return True
+
+
+# ─── CUDA toolkit: detect / install ──────────────────────────────────────────
+
+def ensure_cuda_toolkit() -> bool:
+    """Ensure we have an nvcc that can compile for the installed GPU(s).
+
+    Steps:
+      1. Detect GPU compute capabilities  →  determine minimum CUDA needed.
+      2. Scan system for a suitable nvcc.
+      3. If not found, try to install via the distro package manager or
+         NVIDIA's official repo.
+    """
+    # --- What does our GPU need? ---
+    archs_str = _detect_cuda_architectures()
+    if archs_str:
+        sm_list = [int(x) for x in archs_str.split(";") if x.isdigit()]
+        max_sm = max(sm_list) if sm_list else 0
+    else:
+        max_sm = 0
+
+    if max_sm > 0:
+        min_cuda = _min_cuda_for_sm(max_sm)
+        print(f"  GPU arch: sm_{max_sm}  →  requires CUDA ≥ {min_cuda[0]}.{min_cuda[1]}")
+    else:
+        min_cuda = (11, 0)  # safe fallback
+        print(f"  Could not detect GPU arch — assuming CUDA ≥ {min_cuda[0]}.{min_cuda[1]}")
+
+    # --- Already have a good-enough nvcc? ---
+    nvcc_path = _find_suitable_nvcc(min_cuda)
+    if nvcc_path:
+        ver = _nvcc_version(nvcc_path)
+        print(f"  Found suitable nvcc: {nvcc_path}  (CUDA {ver[0]}.{ver[1]})")
+        # Ensure it's on PATH
+        nvcc_dir = str(Path(nvcc_path).parent)
+        if nvcc_dir not in os.environ.get("PATH", ""):
+            os.environ["PATH"] = f"{nvcc_dir}:{os.environ.get('PATH', '')}"
+            print(f"  Added {nvcc_dir} to PATH")
+        return True
+
+    # --- Need to install ---
+    print(f"  No nvcc found that supports CUDA ≥ {min_cuda[0]}.{min_cuda[1]}")
+
+    if platform.system() != "Linux":
+        print(f"  Please install CUDA toolkit ≥ {min_cuda[0]}.{min_cuda[1]} manually.")
+        return False
+
+    target_ver = _recommended_cuda_for_sm(max_sm) if max_sm else RECOMMENDED_CUDA_TOOLKIT
+
+    # Try 1: distro package manager (quick, may be too old)
+    installed_distro = False
     if shutil.which("apt-get"):
-        # Debian / Ubuntu — install nvidia-cuda-toolkit
+        print(f"  Trying distro nvidia-cuda-toolkit first...")
         _run_sudo(["apt-get", "update", "-qq"])
         _run_sudo(["apt-get", "install", "-y", "-qq", "nvidia-cuda-toolkit"])
+        installed_distro = True
     elif shutil.which("dnf"):
         _run_sudo(["dnf", "install", "-y", "cuda-compiler"])
+        installed_distro = True
     elif shutil.which("yum"):
         _run_sudo(["yum", "install", "-y", "cuda-compiler"])
+        installed_distro = True
     elif shutil.which("pacman"):
         _run_sudo(["pacman", "-Sy", "--noconfirm", "cuda"])
+        installed_distro = True
     elif shutil.which("zypper"):
         _run_sudo(["zypper", "install", "-y", "cuda-compiler"])
-    else:
-        print("  ERROR: Cannot detect package manager. Install CUDA toolkit manually.")
-        return False
+        installed_distro = True
 
-    if shutil.which("nvcc"):
-        r = run(["nvcc", "--version"], capture=True, check=False)
-        print(f"  CUDA toolkit installed: {r.stdout.strip().splitlines()[-1] if r.returncode == 0 else 'unknown version'}")
+    # Check if the distro package was sufficient
+    nvcc_path = _find_suitable_nvcc(min_cuda)
+    if nvcc_path:
+        ver = _nvcc_version(nvcc_path)
+        print(f"  Installed suitable nvcc: {nvcc_path}  (CUDA {ver[0]}.{ver[1]})")
+        nvcc_dir = str(Path(nvcc_path).parent)
+        if nvcc_dir not in os.environ.get("PATH", ""):
+            os.environ["PATH"] = f"{nvcc_dir}:{os.environ.get('PATH', '')}"
         return True
-    else:
-        print("  WARNING: CUDA toolkit installed but nvcc not found on PATH.")
-        print("           You may need to add /usr/local/cuda/bin to your PATH.")
-        # Try the common install location
-        if Path("/usr/local/cuda/bin/nvcc").exists():
-            os.environ["PATH"] = f"/usr/local/cuda/bin:{os.environ.get('PATH', '')}" 
-            print("           Found nvcc at /usr/local/cuda/bin/nvcc — added to PATH.")
+
+    # Try 2: NVIDIA's official repo (apt-based only)
+    if installed_distro and shutil.which("apt-get"):
+        print(f"  Distro nvcc too old — trying NVIDIA's official repo for CUDA {target_ver}...")
+        _install_cuda_via_nvidia_repo(target_ver)
+        nvcc_path = _find_suitable_nvcc(min_cuda)
+        if nvcc_path:
+            ver = _nvcc_version(nvcc_path)
+            print(f"  Installed nvcc: {nvcc_path}  (CUDA {ver[0]}.{ver[1]})")
+            nvcc_dir = str(Path(nvcc_path).parent)
+            if nvcc_dir not in os.environ.get("PATH", ""):
+                os.environ["PATH"] = f"{nvcc_dir}:{os.environ.get('PATH', '')}"
             return True
-        return False
+
+    if not installed_distro:
+        print(f"  ERROR: Cannot detect package manager.")
+
+    print(f"  ERROR: Could not install CUDA toolkit ≥ {min_cuda[0]}.{min_cuda[1]}.")
+    print(f"  Please install CUDA toolkit {target_ver} manually:")
+    print(f"    https://developer.nvidia.com/cuda-{target_ver.replace('.', '-')}-download-archive")
+    return False
 
 
 def _detect_cuda_architectures() -> str:
@@ -633,6 +804,62 @@ if failed:
         script_path.unlink(missing_ok=True)
 
 
+# ─── GPU state tracking (detect GPU swaps between installs) ──────────────────
+
+def _current_gpu_state() -> dict:
+    """Snapshot of GPUs currently in the machine."""
+    state: dict = {"gpus": []}
+    if not shutil.which("nvidia-smi"):
+        return state
+    try:
+        r = subprocess.run(
+            ["nvidia-smi", "--query-gpu=name,compute_cap,memory.total",
+             "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, timeout=10,
+        )
+        if r.returncode == 0:
+            for line in r.stdout.strip().splitlines():
+                parts = [p.strip() for p in line.split(",")]
+                if len(parts) >= 3:
+                    state["gpus"].append({
+                        "name": parts[0],
+                        "compute_cap": parts[1],
+                        "vram_mib": parts[2],
+                    })
+    except Exception:
+        pass
+    return state
+
+
+def _load_gpu_state() -> dict | None:
+    p = Path(GPU_STATE_FILE)
+    if not p.exists():
+        return None
+    try:
+        return json.loads(p.read_text())
+    except Exception:
+        return None
+
+
+def _save_gpu_state(state: dict) -> None:
+    Path(GPU_STATE_FILE).write_text(json.dumps(state, indent=2) + "\n")
+
+
+def _gpu_changed(old: dict | None, new: dict) -> bool:
+    """Return True if the GPU(s) changed since last install."""
+    if old is None:
+        return False  # First run — nothing to compare
+    return old.get("gpus") != new.get("gpus")
+
+
+def _clean_llama_build() -> None:
+    """Remove llama.cpp/build so it can be rebuilt for the new GPU."""
+    build_dir = Path("llama.cpp/build")
+    if build_dir.exists():
+        print("  Removing stale llama.cpp/build...")
+        shutil.rmtree(build_dir)
+
+
 def main():
     parser = argparse.ArgumentParser(description="Install prerequisites for GPU DL Benchmark Suite")
     parser.add_argument("--skip-llama", action="store_true", help="Skip building llama.cpp")
@@ -657,12 +884,26 @@ def main():
     ensure_system_prerequisites()
     print()
 
-    # 1. System info
+    # 1. System info + GPU-swap detection
     print("[1/8] System info")
     print(f"  Python: {platform.python_version()}")
     print(f"  OS:     {platform.system()} {platform.release()}")
     gpu = get_gpu_name()
     print(f"  GPU:    {gpu}")
+
+    gpu_state_now = _current_gpu_state()
+    gpu_state_prev = _load_gpu_state()
+    gpu_swapped = _gpu_changed(gpu_state_prev, gpu_state_now)
+    if gpu_swapped:
+        print()
+        print("  *** GPU CHANGE DETECTED ***")
+        if gpu_state_prev and gpu_state_prev.get("gpus"):
+            old_names = ", ".join(g["name"] for g in gpu_state_prev["gpus"])
+            print(f"  Previous: {old_names}")
+        new_names = ", ".join(g["name"] for g in gpu_state_now.get("gpus", []))
+        print(f"  Current:  {new_names}")
+        print("  Will clean llama.cpp build and re-detect CUDA requirements.")
+        _clean_llama_build()
     print()
 
     # 2. CUDA detection
@@ -713,6 +954,9 @@ def main():
         print(f"[8/8] Pre-downloading benchmark models (set: {args.model_set})...")
         predownload_models(venv_dir, args.model_set)
     print()
+
+    # Save GPU state for future swap detection
+    _save_gpu_state(gpu_state_now)
 
     # Done
     print("=" * 60)
