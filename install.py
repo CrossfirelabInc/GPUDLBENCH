@@ -332,6 +332,48 @@ def ensure_cuda_toolkit():
         return False
 
 
+def _detect_cuda_architectures() -> str:
+    """Return a semicolon-separated list of compute capabilities for all GPUs.
+
+    Tries three methods in order:
+      1. nvidia-smi --query-gpu=compute_cap
+      2. Python torch.cuda (if importable)
+      3. Falls back to empty string (let CMake decide)
+    """
+    # Method 1: nvidia-smi
+    if shutil.which("nvidia-smi"):
+        try:
+            r = subprocess.run(
+                ["nvidia-smi", "--query-gpu=compute_cap", "--format=csv,noheader"],
+                capture_output=True, text=True, timeout=10,
+            )
+            if r.returncode == 0 and r.stdout.strip():
+                caps = set()
+                for line in r.stdout.strip().splitlines():
+                    cc = line.strip().replace(".", "")  # "8.6" -> "86"
+                    if cc.isdigit():
+                        caps.add(cc)
+                if caps:
+                    return ";".join(sorted(caps))
+        except Exception:
+            pass
+
+    # Method 2: torch (may already be installed)
+    try:
+        import torch as _torch
+        if _torch.cuda.is_available():
+            caps = set()
+            for i in range(_torch.cuda.device_count()):
+                major, minor = _torch.cuda.get_device_capability(i)
+                caps.add(f"{major}{minor}")
+            if caps:
+                return ";".join(sorted(caps))
+    except Exception:
+        pass
+
+    return ""
+
+
 def build_llama_cpp(venv_dir):
     # --- Ensure cmake ---
     cmake = _find_cmake(venv_dir)
@@ -371,10 +413,22 @@ def build_llama_cpp(venv_dir):
     cuda_flag = "-DGGML_CUDA=ON" if use_cuda else "-DGGML_CUDA=OFF"
     print(f"  Building with CMake ({cuda_flag})...")
     build_dir = llama_dir / "build"
-    run([
+
+    cmake_args = [
         cmake, "-B", str(build_dir), "-S", str(llama_dir),
         cuda_flag, "-DCMAKE_BUILD_TYPE=Release",
-    ])
+    ]
+
+    # Pin CUDA architectures to the GPUs actually present so nvcc doesn't
+    # try to compile for architectures it doesn't support (e.g. compute_120a
+    # on CUDA 12.0).
+    if use_cuda:
+        cuda_archs = _detect_cuda_architectures()
+        if cuda_archs:
+            print(f"  Detected GPU compute capabilities: {cuda_archs}")
+            cmake_args.append(f"-DCMAKE_CUDA_ARCHITECTURES={cuda_archs}")
+
+    run(cmake_args)
 
     # nproc equivalent
     jobs = str(os.cpu_count() or 4)
