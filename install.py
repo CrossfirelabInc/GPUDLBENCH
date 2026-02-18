@@ -355,6 +355,12 @@ def build_llama_cpp(venv_dir):
         return False
 
     llama_dir = Path("llama.cpp")
+    if llama_dir.exists() and not (llama_dir / "CMakeLists.txt").exists():
+        # Directory exists but is empty/incomplete (e.g. stale submodule
+        # reference or failed previous clone).  Remove and re-clone.
+        print("  llama.cpp directory exists but appears empty — removing and re-cloning...")
+        shutil.rmtree(llama_dir)
+
     if not llama_dir.exists():
         print("  Cloning llama.cpp...")
         run(["git", "clone", "https://github.com/ggerganov/llama.cpp.git", str(llama_dir)])

@@ -6,6 +6,9 @@ data/
 models/
 *.gguf
 
+# llama.cpp (cloned at install time)
+llama.cpp/
+
 # Python
 __pycache__/
 *.py[cod]
