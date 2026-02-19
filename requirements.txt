@@ -10,3 +10,4 @@ psutil
 tqdm
 pillow
 huggingface-hub
+matplotlib
