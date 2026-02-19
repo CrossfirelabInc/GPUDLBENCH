@@ -384,6 +384,7 @@ def _install_cuda_via_nvidia_repo(target_ver: str) -> bool:
     pkg = f"cuda-toolkit-{maj}-{mn}"
 
     print(f"  Installing {pkg} from NVIDIA repo...")
+    print(f"  NOTE: This is a large download (~3-5 GB). Progress shown below.")
     print(f"  Keyring URL: {keyring_url}")
     try:
         import urllib.request
@@ -391,7 +392,7 @@ def _install_cuda_via_nvidia_repo(target_ver: str) -> bool:
         urllib.request.urlretrieve(keyring_url, keyring_deb)
         _run_sudo(["dpkg", "-i", keyring_deb])
         _run_sudo(["apt-get", "update", "-qq"])
-        _run_sudo(["apt-get", "install", "-y", "-qq", pkg])
+        _run_sudo(["apt-get", "install", "-y", pkg])  # no -qq: show progress
     except Exception as e:
         print(f"  Failed to install from NVIDIA repo: {e}")
         return False
