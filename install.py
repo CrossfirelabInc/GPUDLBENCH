@@ -413,8 +413,10 @@ def _install_cuda_via_nvidia_repo(target_ver: str) -> bool:
 
 # ─── CUDA toolkit: detect / install ──────────────────────────────────────────
 
-def ensure_cuda_toolkit() -> bool:
+def ensure_cuda_toolkit() -> str | None:
     """Ensure we have an nvcc that can compile for the installed GPU(s).
+
+    Returns the absolute path to a suitable nvcc, or None on failure.
 
     Steps:
       1. Detect GPU compute capabilities  →  determine minimum CUDA needed.
@@ -437,24 +439,28 @@ def ensure_cuda_toolkit() -> bool:
         min_cuda = (11, 0)  # safe fallback
         print(f"  Could not detect GPU arch — assuming CUDA ≥ {min_cuda[0]}.{min_cuda[1]}")
 
-    # --- Already have a good-enough nvcc? ---
-    nvcc_path = _find_suitable_nvcc(min_cuda)
-    if nvcc_path:
-        ver = _nvcc_version(nvcc_path)
-        print(f"  Found suitable nvcc: {nvcc_path}  (CUDA {ver[0]}.{ver[1]})")
-        # Ensure it's on PATH
-        nvcc_dir = str(Path(nvcc_path).parent)
+    def _accept_nvcc(nvcc: str) -> str | None:
+        ver = _nvcc_version(nvcc)
+        if not ver:
+            return None
+        print(f"  Found suitable nvcc: {nvcc}  (CUDA {ver[0]}.{ver[1]})")
+        nvcc_dir = str(Path(nvcc).parent)
         if nvcc_dir not in os.environ.get("PATH", ""):
             os.environ["PATH"] = f"{nvcc_dir}:{os.environ.get('PATH', '')}"
             print(f"  Added {nvcc_dir} to PATH")
-        return True
+        return nvcc
+
+    # --- Already have a good-enough nvcc? ---
+    nvcc_path = _find_suitable_nvcc(min_cuda)
+    if nvcc_path:
+        return _accept_nvcc(nvcc_path)
 
     # --- Need to install ---
     print(f"  No nvcc found that supports CUDA ≥ {min_cuda[0]}.{min_cuda[1]}")
 
     if platform.system() != "Linux":
         print(f"  Please install CUDA toolkit ≥ {min_cuda[0]}.{min_cuda[1]} manually.")
-        return False
+        return None
 
     target_ver = _recommended_cuda_for_sm(max_sm) if max_sm else RECOMMENDED_CUDA_TOOLKIT
 
@@ -481,12 +487,7 @@ def ensure_cuda_toolkit() -> bool:
     # Check if the distro package was sufficient
     nvcc_path = _find_suitable_nvcc(min_cuda)
     if nvcc_path:
-        ver = _nvcc_version(nvcc_path)
-        print(f"  Installed suitable nvcc: {nvcc_path}  (CUDA {ver[0]}.{ver[1]})")
-        nvcc_dir = str(Path(nvcc_path).parent)
-        if nvcc_dir not in os.environ.get("PATH", ""):
-            os.environ["PATH"] = f"{nvcc_dir}:{os.environ.get('PATH', '')}"
-        return True
+        return _accept_nvcc(nvcc_path)
 
     # Try 2: NVIDIA's official repo (apt-based only)
     if installed_distro and shutil.which("apt-get"):
@@ -494,12 +495,7 @@ def ensure_cuda_toolkit() -> bool:
         _install_cuda_via_nvidia_repo(target_ver)
         nvcc_path = _find_suitable_nvcc(min_cuda)
         if nvcc_path:
-            ver = _nvcc_version(nvcc_path)
-            print(f"  Installed nvcc: {nvcc_path}  (CUDA {ver[0]}.{ver[1]})")
-            nvcc_dir = str(Path(nvcc_path).parent)
-            if nvcc_dir not in os.environ.get("PATH", ""):
-                os.environ["PATH"] = f"{nvcc_dir}:{os.environ.get('PATH', '')}"
-            return True
+            return _accept_nvcc(nvcc_path)
 
     if not installed_distro:
         print(f"  ERROR: Cannot detect package manager.")
@@ -507,7 +503,7 @@ def ensure_cuda_toolkit() -> bool:
     print(f"  ERROR: Could not install CUDA toolkit ≥ {min_cuda[0]}.{min_cuda[1]}.")
     print(f"  Please install CUDA toolkit {target_ver} manually:")
     print(f"    https://developer.nvidia.com/cuda-{target_ver.replace('.', '-')}-download-archive")
-    return False
+    return None
 
 
 def _detect_cuda_architectures() -> str:
@@ -564,36 +560,51 @@ def _gcc_major_version(gcc_path: str) -> int | None:
     return None
 
 
-def _find_compatible_host_compiler() -> tuple[str, str] | None:
-    """Find a GCC ≥ 13 to use as CUDA host compiler.
+def _find_compatible_host_compiler() -> tuple[str, str]:
+    """Resolve a gcc/g++ pair suitable as CUDA host compiler.
 
-    Newer glibc (Ubuntu 24.04+) headers use _Float64x / _Float128, which
-    require GCC 13+.  CUDA toolkit may have pulled in GCC 12.  We look for
-    a suitable versioned gcc-N / g++-N on the system and install one if
-    needed.
+    Ubuntu 24.04+ glibc headers use _Float64x / _Float128 which require
+    GCC >= 13.  CUDA toolkit packages can pull in GCC 12, and on some
+    systems ``gcc`` points to 13 while ``g++`` still points to 12 (or
+    vice-versa) because they are managed by separate alternatives entries.
 
-    Returns (gcc_path, g++_path) or None if the default gcc is already fine.
+    We therefore:
+      1. Prefer an explicit versioned pair (gcc-13 / g++-13) — most reliable.
+      2. Fall back to the default ``gcc`` / ``g++`` IF *both* are >= 13.
+      3. If nothing suitable exists, try to ``apt-get install`` gcc-13.
+      4. Ultimate fallback: return the system default even if too old
+         (caller should still try; the build will produce a clear error).
+
+    Always returns (gcc_path, g++_path) so the caller can be explicit.
     """
     MIN_GCC = 13
 
-    # Check if default gcc is already good enough
+    # ---- diagnostics (printed so remote failures are debuggable) ----
     default_gcc = shutil.which("gcc")
-    if default_gcc:
-        ver = _gcc_major_version(default_gcc)
-        if ver and ver >= MIN_GCC:
-            return None  # default is fine
+    default_gxx = shutil.which("g++")
+    gcc_ver = _gcc_major_version(default_gcc) if default_gcc else None
+    gxx_ver = _gcc_major_version(default_gxx) if default_gxx else None
+    print(f"  Default compilers: gcc={default_gcc} (v{gcc_ver})  "
+          f"g++={default_gxx} (v{gxx_ver})")
 
-    # Scan for versioned gcc-13, gcc-14, etc.
+    # ---- 1. Prefer explicit versioned pair (most reliable) ----
     for v in range(MIN_GCC, MIN_GCC + 5):
         gcc = shutil.which(f"gcc-{v}")
         gxx = shutil.which(f"g++-{v}")
         if gcc and gxx:
-            print(f"  Found gcc-{v} / g++-{v} (system default gcc is too old)")
+            print(f"  Using explicit gcc-{v} / g++-{v}")
             return (gcc, gxx)
 
-    # Not found — try to install gcc-13
+    # ---- 2. Default pair, but ONLY if both are new enough ----
+    if (default_gcc and default_gxx
+            and gcc_ver and gcc_ver >= MIN_GCC
+            and gxx_ver and gxx_ver >= MIN_GCC):
+        print(f"  Default gcc/g++ are both >= {MIN_GCC} — using them")
+        return (default_gcc, default_gxx)
+
+    # ---- 3. Try to install gcc-13 ----
     if platform.system() == "Linux" and shutil.which("apt-get"):
-        print(f"  Default gcc is too old for system headers — installing gcc-{MIN_GCC}...")
+        print(f"  No GCC >= {MIN_GCC} pair found — installing gcc-{MIN_GCC} / g++-{MIN_GCC}...")
         try:
             _run_sudo(["apt-get", "install", "-y", "-qq",
                         f"gcc-{MIN_GCC}", f"g++-{MIN_GCC}"])
@@ -604,8 +615,15 @@ def _find_compatible_host_compiler() -> tuple[str, str] | None:
         except Exception as e:
             print(f"  Failed to install gcc-{MIN_GCC}: {e}")
 
-    print("  WARNING: Could not find GCC ≥ 13. Build may fail with newer glibc headers.")
-    return None
+    # ---- 4. Fallback: return whatever we have (build will likely fail) ----
+    if default_gcc and default_gxx:
+        print(f"  WARNING: Using gcc={gcc_ver} / g++={gxx_ver} — "
+              f"build may fail with _Float128 errors")
+        return (default_gcc, default_gxx)
+
+    # Nothing at all — should not happen after ensure_system_prerequisites
+    print("  ERROR: No gcc/g++ found on system!")
+    return ("gcc", "g++")  # last resort, let cmake error out clearly
 
 
 def build_llama_cpp(venv_dir):
@@ -621,8 +639,8 @@ def build_llama_cpp(venv_dir):
     print(f"  Using cmake: {cmake}")
 
     # --- Ensure CUDA toolkit (nvcc) for CUDA build ---
-    use_cuda = ensure_cuda_toolkit()
-    if not use_cuda:
+    nvcc_path = ensure_cuda_toolkit()  # returns path or None
+    if not nvcc_path:
         print("  WARNING: Building llama.cpp WITHOUT CUDA support (nvcc not available).")
         print("           LLM token/s benchmark will run on CPU only.")
 
@@ -648,7 +666,7 @@ def build_llama_cpp(venv_dir):
     build_dir = llama_dir / "build"
     jobs = str(os.cpu_count() or 4)
 
-    if not use_cuda:
+    if not nvcc_path:
         print("  ERROR: CUDA not available — skipping llama.cpp (GPU benchmarks need CUDA).")
         return False
 
@@ -656,31 +674,37 @@ def build_llama_cpp(venv_dir):
     if build_dir.exists():
         shutil.rmtree(build_dir)
 
+    # --- Resolve compilers BEFORE cmake ---
+    # We ALWAYS set compilers explicitly (env vars + cmake flags) because:
+    #   1. nvcc uses g++ as host compiler — on Ubuntu 24.04, ``gcc`` can be
+    #      v13 while ``g++`` is still v12 (CUDA toolkit pulls in g++-12).
+    #   2. CMake's CUDA compiler-ID test (enable_language(CUDA)) runs nvcc
+    #      which picks up the system default g++ — not CMAKE_CXX_COMPILER.
+    #   3. CUDAHOSTCXX env var is respected by nvcc *and* by CMake's CUDA
+    #      module during compiler identification — it's the most reliable
+    #      way to control the host compiler at every stage.
+    gcc, gxx = _find_compatible_host_compiler()
+    print(f"  Host compilers: CC={gcc}  CXX={gxx}")
+    print(f"  CUDA compiler:  {nvcc_path}")
+
+    # Environment variables — belt-and-suspenders.  These are checked by
+    # CMake *and* by nvcc before any -D flags or CMakeLists.txt logic.
+    os.environ["CC"] = gcc
+    os.environ["CXX"] = gxx
+    os.environ["CUDAHOSTCXX"] = gxx   # nvcc host compiler
+    os.environ["CUDACXX"] = nvcc_path  # nvcc itself
+
     # Let llama.cpp's own CMake logic pick CUDA architectures — it already
     # checks CUDAToolkit_VERSION and only adds arches that nvcc supports.
-    # Passing CMAKE_CUDA_ARCHITECTURES ourselves can conflict with their
-    # 12X → 12Xa rewrite logic.
     configure_cmd = [
         cmake, "-B", str(build_dir), "-S", str(llama_dir),
         "-DGGML_CUDA=ON", "-DCMAKE_BUILD_TYPE=Release",
+        # Explicit compilers — matches the env vars above.
+        f"-DCMAKE_C_COMPILER={gcc}",
+        f"-DCMAKE_CXX_COMPILER={gxx}",
+        f"-DCMAKE_CUDA_COMPILER={nvcc_path}",
+        f"-DCMAKE_CUDA_HOST_COMPILER={gxx}",
     ]
-
-    # Ensure the CUDA host compiler is compatible with system headers.
-    # Ubuntu 24.04+ glibc uses _Float64x/_Float128 which need GCC ≥ 13,
-    # but CUDA toolkit packages can pull in GCC 12 as default.
-    host_cc = _find_compatible_host_compiler()
-    if host_cc:
-        gcc, gxx = host_cc
-        print(f"  Using host compiler: {gcc}")
-        configure_cmd += [
-            f"-DCMAKE_C_COMPILER={gcc}",
-            f"-DCMAKE_CXX_COMPILER={gxx}",
-            # CMAKE_CUDA_HOST_COMPILER is critical — without it, CMake's
-            # CUDA compiler-ID step (enable_language(CUDA)) still uses
-            # the default g++ from PATH, which may be too old for glibc
-            # headers on Ubuntu 24.04+ (_Float128 / _Float64x errors).
-            f"-DCMAKE_CUDA_HOST_COMPILER={gxx}",
-        ]
 
     try:
         run(configure_cmd)
