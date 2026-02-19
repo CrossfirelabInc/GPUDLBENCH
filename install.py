@@ -585,26 +585,30 @@ def build_llama_cpp(venv_dir):
     cuda_flag = "-DGGML_CUDA=ON" if use_cuda else "-DGGML_CUDA=OFF"
     print(f"  Building with CMake ({cuda_flag})...")
     build_dir = llama_dir / "build"
+    jobs = str(os.cpu_count() or 4)
 
-    cmake_args = [
+    if not use_cuda:
+        print("  ERROR: CUDA not available — skipping llama.cpp (GPU benchmarks need CUDA).")
+        return False
+
+    # Clean stale build
+    if build_dir.exists():
+        shutil.rmtree(build_dir)
+
+    # Use "native" so nvcc auto-detects the GPU arch without llama.cpp's
+    # CMake rewriting it to unsupported suffixes (e.g. 120 → 120a).
+    configure_cmd = [
         cmake, "-B", str(build_dir), "-S", str(llama_dir),
-        cuda_flag, "-DCMAKE_BUILD_TYPE=Release",
+        "-DGGML_CUDA=ON", "-DCMAKE_BUILD_TYPE=Release",
+        "-DCMAKE_CUDA_ARCHITECTURES=native",
     ]
 
-    # Pin CUDA architectures to the GPUs actually present so nvcc doesn't
-    # try to compile for architectures it doesn't support (e.g. compute_120a
-    # on CUDA 12.0).
-    if use_cuda:
-        cuda_archs = _detect_cuda_architectures()
-        if cuda_archs:
-            print(f"  Detected GPU compute capabilities: {cuda_archs}")
-            cmake_args.append(f"-DCMAKE_CUDA_ARCHITECTURES={cuda_archs}")
-
-    run(cmake_args)
-
-    # nproc equivalent
-    jobs = str(os.cpu_count() or 4)
-    run([cmake, "--build", str(build_dir), "--config", "Release", "-j", jobs])
+    try:
+        run(configure_cmd)
+        run([cmake, "--build", str(build_dir), "--config", "Release", "-j", jobs])
+    except subprocess.CalledProcessError as e:
+        print(f"  ERROR: llama.cpp build failed: {e}")
+        return False
 
     # Find the binary (prefer llama-completion for benchmarking)
     for candidate in [
