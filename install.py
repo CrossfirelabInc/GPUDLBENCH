@@ -675,6 +675,11 @@ def build_llama_cpp(venv_dir):
         configure_cmd += [
             f"-DCMAKE_C_COMPILER={gcc}",
             f"-DCMAKE_CXX_COMPILER={gxx}",
+            # CMAKE_CUDA_HOST_COMPILER is critical — without it, CMake's
+            # CUDA compiler-ID step (enable_language(CUDA)) still uses
+            # the default g++ from PATH, which may be too old for glibc
+            # headers on Ubuntu 24.04+ (_Float128 / _Float64x errors).
+            f"-DCMAKE_CUDA_HOST_COMPILER={gxx}",
         ]
 
     try:
