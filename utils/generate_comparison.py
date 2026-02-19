@@ -1285,7 +1285,12 @@ def chart_dual_gpu(d: ComparisonData, out: Path):
         v2 = d.get(key_2)
         ve = d.get(key_eff)
 
-        if any(v is not None for v in v1):
+        # Only include workload if at least one GPU has BOTH 1-GPU and 2-GPU data
+        has_pair = any(
+            a is not None and b is not None
+            for a, b in zip(v1, v2)
+        )
+        if has_pair:
             cats.append(label)
             vals_1gpu.append(v1)
             vals_2gpu.append(v2)
