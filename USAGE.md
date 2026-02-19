@@ -9,6 +9,12 @@
     python3 install.py --hf-token TOKEN      # pass HF token directly
     python3 install.py --venv DIR            # custom venv directory
 
+Re-running `install.py` after swapping GPUs/drivers is supported. The installer now:
+- detects GPU, driver, CUDA toolkit (`nvcc`), and host compiler drift,
+- re-validates/repairs CUDA toolkit compatibility for the current GPU architecture,
+- cleans stale `llama.cpp/build` automatically when environment changes are detected,
+- rebuilds `llama.cpp` (unless `--skip-llama` is used).
+
 ## run_benchmarks.py
 
     python run_benchmarks.py

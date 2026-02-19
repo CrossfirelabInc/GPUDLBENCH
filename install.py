@@ -138,13 +138,17 @@ def detect_cuda_version():
 
 
 def cuda_version_to_index(ver_string):
-    """Map a CUDA version like '12.4' to a PyTorch wheel index suffix."""
+    """Map a CUDA driver version like '12.4' to a PyTorch wheel index suffix."""
     if ver_string is None:
         print("  WARNING: Could not detect CUDA. Defaulting to cu124.")
         return "cu124"
 
     major, minor = (int(x) for x in ver_string.split(".")[:2])
-    if major >= 13 or (major == 12 and minor >= 4):
+    if major >= 13 or (major == 12 and minor >= 8):
+        return "cu128"
+    if major == 12 and minor >= 6:
+        return "cu126"
+    if major == 12 and minor >= 4:
         return "cu124"
     if major == 12:
         return "cu121"
@@ -153,6 +157,18 @@ def cuda_version_to_index(ver_string):
 
     print(f"  WARNING: CUDA {ver_string} may be too old. Trying cu118.")
     return "cu118"
+
+
+def _best_cuda_suffix(cuda_ver, gpu_sm):
+    """Pick the PyTorch CUDA wheel index for this GPU.
+
+    Blackwell+ (sm >= 100) forces cu128 because only those wheels
+    contain sm_100 / sm_120 kernels.
+    """
+    if gpu_sm >= 100:
+        print(f"  Blackwell+ GPU (sm_{gpu_sm}) — forcing cu128 index.")
+        return "cu128"
+    return cuda_version_to_index(cuda_ver)
 
 
 def get_gpu_name():
@@ -212,58 +228,99 @@ def pip_install(venv_dir, args):
     run([py, "-m", "pip"] + args)
 
 
-# ─── Pinned versions for reproducibility ─────────────────────────────────────
-TORCH_VERSION = "2.6.0"
-TORCHVISION_VERSION = "0.21.0"
-TORCHAUDIO_VERSION = "2.6.0"
-RECOMMENDED_CUDA_TOOLKIT = "12.4"  # nvcc version that matches pinned PyTorch wheels
-GPU_STATE_FILE = ".gpu_state.json"  # tracks GPU info across installs for swap detection
+GPU_STATE_FILE = ".gpu_state.json"  # tracks GPU/toolchain info across installs
+
+
+def _get_max_gpu_sm() -> int:
+    """Return the highest compute capability (as condensed int) across all GPUs.
+
+    E.g. RTX 5090 (sm_12.0) → 120, RTX 4090 (sm_8.9) → 89, A100 (sm_8.0) → 80.
+    Returns 0 if detection fails.
+    """
+    archs = _detect_cuda_architectures()
+    if archs:
+        sm_list = [int(x) for x in archs.split(";") if x.isdigit()]
+        return max(sm_list) if sm_list else 0
+    return 0
 
 
 def install_pytorch(venv_dir, cuda_suffix):
+    """Clean-install latest PyTorch from the correct CUDA wheel index.
+
+    Always removes old torch packages first to avoid stale-kernel mismatches
+    after a GPU swap.  Tries stable wheels first, falls back to nightly.
+    """
+    py = venv_python(venv_dir)
     pip_install(venv_dir, ["install", "--upgrade", "pip", "setuptools", "wheel", "-q"])
-    pip_install(venv_dir, [
-        "install",
-        f"torch=={TORCH_VERSION}", f"torchvision=={TORCHVISION_VERSION}", f"torchaudio=={TORCHAUDIO_VERSION}",
-        "--index-url", f"https://download.pytorch.org/whl/{cuda_suffix}",
-        "-q",
-    ])
+
+    # Clean existing PyTorch (avoids leftover builds compiled for a different arch)
+    print("  Removing old PyTorch packages (if any)...")
+    run([py, "-m", "pip", "uninstall", "-y",
+         "torch", "torchvision", "torchaudio"], check=False)
+
+    # Try stable wheels
+    index = f"https://download.pytorch.org/whl/{cuda_suffix}"
+    print(f"  Installing latest PyTorch ({cuda_suffix})...")
+    r = subprocess.run(
+        [py, "-m", "pip", "install",
+         "torch", "torchvision", "torchaudio",
+         "--index-url", index, "-q"],
+        capture_output=True, text=True,
+    )
+    if r.returncode == 0:
+        return True
+
+    # Stable failed — try nightly (common for brand-new architectures)
+    print(f"  Stable {cuda_suffix} wheels not available — trying nightly...")
+    nightly_index = f"https://download.pytorch.org/whl/nightly/{cuda_suffix}"
+    r = subprocess.run(
+        [py, "-m", "pip", "install", "--pre",
+         "torch", "torchvision", "torchaudio",
+         "--index-url", nightly_index, "-q"],
+        capture_output=True, text=True,
+    )
+    if r.returncode == 0:
+        return True
+
+    print(f"  ERROR: Could not install PyTorch for {cuda_suffix}.")
+    print(f"  {r.stderr[-300:] if r.stderr else '(no details)'}")
+    return False
 
 
 def verify_pytorch(venv_dir):
+    """Verify PyTorch detects the GPU and can run kernels on it."""
     py = venv_python(venv_dir)
     code = (
-        "import torch; "
-        "print(f'  PyTorch {torch.__version__}'); "
-        "cuda_ok = torch.cuda.is_available(); "
-        "print(f'  CUDA available: {cuda_ok}'); "
-        "exit(0) if not cuda_ok else None; "
-        "print(f'  CUDA version:   {torch.version.cuda}'); "
-        "print(f'  GPU:            {torch.cuda.get_device_name(0)}')"
+        "import torch, sys\n"
+        "print(f'  PyTorch {torch.__version__}')\n"
+        "if not torch.cuda.is_available():\n"
+        "    print('  CUDA not available'); sys.exit(1)\n"
+        "print(f'  CUDA:  {torch.version.cuda}')\n"
+        "print(f'  GPU:   {torch.cuda.get_device_name(0)}')\n"
+        "try:\n"
+        "    torch.zeros(1, device='cuda')\n"
+        "except RuntimeError as e:\n"
+        "    if 'no kernel image' in str(e):\n"
+        "        maj, mn = torch.cuda.get_device_capability(0)\n"
+        "        print(f'  FAIL: no kernels for sm_{maj}{mn}')\n"
+        "        sys.exit(1)\n"
+        "    raise\n"
+        "print('  GPU compatibility: OK')"
     )
     r = run([py, "-c", code], check=False)
     if r.returncode != 0:
-        print("  WARNING: PyTorch installed but could not verify CUDA support.")
-        print("           Benchmarks requiring CUDA may fail.")
-        print("           This can happen if the NVIDIA driver is not loaded.")
+        print("  WARNING: PyTorch cannot use this GPU.")
+        print("           Re-run install.py to fix, or check driver/CUDA.")
         return False
     return True
 
 
 def install_python_deps(venv_dir):
-    # Use requirements.txt for pinned versions
     req_file = Path(__file__).resolve().parent / "requirements.txt"
-    if req_file.exists():
-        pip_install(venv_dir, ["install", "-r", str(req_file), "-q"])
-    else:
-        # Fallback if requirements.txt is missing
-        pip_install(venv_dir, [
-            "install",
-            "transformers==4.48.3", "datasets==3.3.2", "accelerate==1.4.0",
-            "pandas==2.2.3", "numpy==2.2.3", "psutil==6.1.1", "tqdm==4.67.1",
-            "pillow==11.1.0", "huggingface-hub==0.28.1",
-            "-q",
-        ])
+    if not req_file.exists():
+        print("  ERROR: requirements.txt not found.")
+        return
+    pip_install(venv_dir, ["install", "--upgrade", "-r", str(req_file), "-q"])
 
 
 def _find_cmake(venv_dir):
@@ -462,27 +519,50 @@ def ensure_cuda_toolkit() -> str | None:
         print(f"  Please install CUDA toolkit ≥ {min_cuda[0]}.{min_cuda[1]} manually.")
         return None
 
-    target_ver = _recommended_cuda_for_sm(max_sm) if max_sm else RECOMMENDED_CUDA_TOOLKIT
+    target_ver = _recommended_cuda_for_sm(max_sm) if max_sm else "12.4"
 
-    # Try 1: distro package manager (quick, may be too old)
+    # Try 1: package manager install
     installed_distro = False
     if shutil.which("apt-get"):
-        print(f"  Trying distro nvidia-cuda-toolkit first...")
-        _run_sudo(["apt-get", "update", "-qq"])
-        _run_sudo(["apt-get", "install", "-y", "-qq", "nvidia-cuda-toolkit"])
-        installed_distro = True
+        # On Debian/Ubuntu, distro nvidia-cuda-toolkit is often older.
+        # Prefer NVIDIA's official repo first to reduce nvcc/header mismatches.
+        print(f"  Trying NVIDIA official repo first (target CUDA {target_ver})...")
+        if _install_cuda_via_nvidia_repo(target_ver):
+            nvcc_path = _find_suitable_nvcc(min_cuda)
+            if nvcc_path:
+                return _accept_nvcc(nvcc_path)
+
+        print(f"  Falling back to distro nvidia-cuda-toolkit...")
+        try:
+            _run_sudo(["apt-get", "update", "-qq"])
+            _run_sudo(["apt-get", "install", "-y", "-qq", "nvidia-cuda-toolkit"])
+            installed_distro = True
+        except Exception as e:
+            print(f"  Distro CUDA toolkit install failed: {e}")
     elif shutil.which("dnf"):
-        _run_sudo(["dnf", "install", "-y", "cuda-compiler"])
-        installed_distro = True
+        try:
+            _run_sudo(["dnf", "install", "-y", "cuda-compiler"])
+            installed_distro = True
+        except Exception as e:
+            print(f"  DNF CUDA install failed: {e}")
     elif shutil.which("yum"):
-        _run_sudo(["yum", "install", "-y", "cuda-compiler"])
-        installed_distro = True
+        try:
+            _run_sudo(["yum", "install", "-y", "cuda-compiler"])
+            installed_distro = True
+        except Exception as e:
+            print(f"  YUM CUDA install failed: {e}")
     elif shutil.which("pacman"):
-        _run_sudo(["pacman", "-Sy", "--noconfirm", "cuda"])
-        installed_distro = True
+        try:
+            _run_sudo(["pacman", "-Sy", "--noconfirm", "cuda"])
+            installed_distro = True
+        except Exception as e:
+            print(f"  Pacman CUDA install failed: {e}")
     elif shutil.which("zypper"):
-        _run_sudo(["zypper", "install", "-y", "cuda-compiler"])
-        installed_distro = True
+        try:
+            _run_sudo(["zypper", "install", "-y", "cuda-compiler"])
+            installed_distro = True
+        except Exception as e:
+            print(f"  Zypper CUDA install failed: {e}")
 
     # Check if the distro package was sufficient
     nvcc_path = _find_suitable_nvcc(min_cuda)
@@ -560,6 +640,18 @@ def _gcc_major_version(gcc_path: str) -> int | None:
     return None
 
 
+def _glibc_version() -> tuple[int, int] | None:
+    """Return glibc version as (major, minor), or None if unavailable."""
+    try:
+        _, ver = platform.libc_ver()
+        m = re.match(r"(\d+)\.(\d+)", ver or "")
+        if m:
+            return (int(m.group(1)), int(m.group(2)))
+    except Exception:
+        pass
+    return None
+
+
 def _find_compatible_host_compiler() -> tuple[str, str]:
     """Resolve a gcc/g++ pair suitable as CUDA host compiler.
 
@@ -626,7 +718,7 @@ def _find_compatible_host_compiler() -> tuple[str, str]:
     return ("gcc", "g++")  # last resort, let cmake error out clearly
 
 
-def build_llama_cpp(venv_dir):
+def build_llama_cpp(venv_dir, nvcc_path: str | None = None):
     # --- Ensure cmake ---
     cmake = _find_cmake(venv_dir)
     if cmake is None:
@@ -639,7 +731,8 @@ def build_llama_cpp(venv_dir):
     print(f"  Using cmake: {cmake}")
 
     # --- Ensure CUDA toolkit (nvcc) for CUDA build ---
-    nvcc_path = ensure_cuda_toolkit()  # returns path or None
+    if not nvcc_path:
+        nvcc_path = ensure_cuda_toolkit()  # returns path or None
     if not nvcc_path:
         print("  WARNING: Building llama.cpp WITHOUT CUDA support (nvcc not available).")
         print("           LLM token/s benchmark will run on CPU only.")
@@ -684,6 +777,19 @@ def build_llama_cpp(venv_dir):
     #      module during compiler identification — it's the most reliable
     #      way to control the host compiler at every stage.
     gcc, gxx = _find_compatible_host_compiler()
+    gxx_ver = _gcc_major_version(gxx)
+    glibc_ver = _glibc_version()
+
+    # Guardrail for the common Ubuntu 24.04+/glibc 2.38+ failure mode:
+    # old g++ with newer glibc headers produces _Float64x/_Float128 errors.
+    if glibc_ver and glibc_ver >= (2, 38) and (not gxx_ver or gxx_ver < 13):
+        print("  ERROR: Detected glibc >= 2.38 with g++ < 13.")
+        print("         This commonly fails with _Float64x/_Float128 errors during CUDA compiler detection.")
+        print("         Install newer host compilers and retry:")
+        print("           sudo apt-get update && sudo apt-get install -y gcc-13 g++-13")
+        print("         Then re-run: python install.py")
+        return False
+
     print(f"  Host compilers: CC={gcc}  CXX={gxx}")
     print(f"  CUDA compiler:  {nvcc_path}")
 
@@ -915,8 +1021,21 @@ if failed:
 # ─── GPU state tracking (detect GPU swaps between installs) ──────────────────
 
 def _current_gpu_state() -> dict:
-    """Snapshot of GPUs currently in the machine."""
-    state: dict = {"gpus": []}
+    """Snapshot of GPU + CUDA toolchain state for drift detection."""
+    nvcc = shutil.which("nvcc")
+    nvcc_ver = _nvcc_version(nvcc) if nvcc else None
+    gcc = shutil.which("gcc")
+    gxx = shutil.which("g++")
+
+    state: dict = {
+        "gpus": [],
+        "driver_version": None,
+        "cuda_driver_version": detect_cuda_version(),
+        "nvcc_path": nvcc,
+        "nvcc_version": f"{nvcc_ver[0]}.{nvcc_ver[1]}" if nvcc_ver else None,
+        "gcc_version": _gcc_major_version(gcc) if gcc else None,
+        "gxx_version": _gcc_major_version(gxx) if gxx else None,
+    }
     if not shutil.which("nvidia-smi"):
         return state
     try:
@@ -934,6 +1053,13 @@ def _current_gpu_state() -> dict:
                         "compute_cap": parts[1],
                         "vram_mib": parts[2],
                     })
+
+        drv = subprocess.run(
+            ["nvidia-smi", "--query-gpu=driver_version", "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, timeout=10,
+        )
+        if drv.returncode == 0 and drv.stdout.strip():
+            state["driver_version"] = drv.stdout.strip().splitlines()[0].strip()
     except Exception:
         pass
     return state
@@ -954,10 +1080,37 @@ def _save_gpu_state(state: dict) -> None:
 
 
 def _gpu_changed(old: dict | None, new: dict) -> bool:
-    """Return True if the GPU(s) changed since last install."""
+    """Return True if GPU/runtime/toolchain changed since last install."""
     if old is None:
         return False  # First run — nothing to compare
-    return old.get("gpus") != new.get("gpus")
+    keys = [
+        "gpus",
+        "driver_version",
+        "cuda_driver_version",
+        "nvcc_version",
+        "gcc_version",
+        "gxx_version",
+    ]
+    return any(old.get(k) != new.get(k) for k in keys)
+
+
+def _gpu_change_reasons(old: dict | None, new: dict) -> list[str]:
+    """Return human-readable reasons describing why repair/rebuild is needed."""
+    if old is None:
+        return []
+
+    reasons: list[str] = []
+    if old.get("gpus") != new.get("gpus"):
+        reasons.append("GPU hardware (name/compute capability/VRAM)")
+    if old.get("driver_version") != new.get("driver_version"):
+        reasons.append("NVIDIA driver version")
+    if old.get("cuda_driver_version") != new.get("cuda_driver_version"):
+        reasons.append("CUDA driver capability")
+    if old.get("nvcc_version") != new.get("nvcc_version"):
+        reasons.append("CUDA toolkit (nvcc)")
+    if old.get("gcc_version") != new.get("gcc_version") or old.get("gxx_version") != new.get("gxx_version"):
+        reasons.append("host compiler (gcc/g++)")
+    return reasons
 
 
 def _clean_llama_build() -> None:
@@ -1002,27 +1155,37 @@ def main():
     gpu_state_now = _current_gpu_state()
     gpu_state_prev = _load_gpu_state()
     gpu_swapped = _gpu_changed(gpu_state_prev, gpu_state_now)
+    change_reasons = _gpu_change_reasons(gpu_state_prev, gpu_state_now)
     if gpu_swapped:
         print()
-        print("  *** GPU CHANGE DETECTED ***")
+        print("  *** ENVIRONMENT CHANGE DETECTED ***")
         if gpu_state_prev and gpu_state_prev.get("gpus"):
             old_names = ", ".join(g["name"] for g in gpu_state_prev["gpus"])
             print(f"  Previous: {old_names}")
         new_names = ", ".join(g["name"] for g in gpu_state_now.get("gpus", []))
         print(f"  Current:  {new_names}")
+        if change_reasons:
+            print("  Reasons:")
+            for reason in change_reasons:
+                print(f"    - {reason}")
         print("  Will clean llama.cpp build and re-detect CUDA requirements.")
         _clean_llama_build()
     print()
 
-    # 2. CUDA detection
-    print("[2/8] Detecting CUDA version...")
+    # 2. Detect GPU → pick CUDA suffix
+    print("[2/8] Detecting GPU and CUDA environment...")
     cuda_ver = detect_cuda_version()
-    if cuda_ver:
-        print(f"  Detected CUDA: {cuda_ver}")
+    gpu_sm = _get_max_gpu_sm()
+    cuda_suffix = _best_cuda_suffix(cuda_ver, gpu_sm)
+    print(f"  CUDA driver: {cuda_ver or 'not detected'}")
+    print(f"  GPU arch:    {'sm_' + str(gpu_sm) if gpu_sm else 'unknown'}")
+    print(f"  Wheel index: {cuda_suffix}")
+
+    nvcc_path = ensure_cuda_toolkit()
+    if nvcc_path:
+        print(f"  CUDA toolkit: {nvcc_path}")
     else:
-        print("  Could not detect CUDA version")
-    cuda_suffix = cuda_version_to_index(cuda_ver)
-    print(f"  PyTorch wheel index: {cuda_suffix}")
+        print("  WARNING: nvcc not found — llama.cpp CUDA build may fail.")
     print()
 
     # 3. Virtual environment
@@ -1030,11 +1193,16 @@ def main():
     create_venv(venv_dir)
     print()
 
-    # 4. PyTorch
+    # 4. PyTorch (clean install — always latest for this GPU)
     print("[4/8] Installing PyTorch...")
-    install_pytorch(venv_dir, cuda_suffix)
-    print("  Verifying...")
-    verify_pytorch(venv_dir)
+    pytorch_ok = install_pytorch(venv_dir, cuda_suffix)
+    if pytorch_ok:
+        print("  Verifying...")
+        pytorch_ok = verify_pytorch(venv_dir)
+    if not pytorch_ok:
+        print("  WARNING: PyTorch not working for this GPU.")
+        print("           PyTorch-based benchmarks (1-4, 6-10) will fail.")
+        print("           Check https://pytorch.org/get-started/locally/")
     print()
 
     # 5. Python dependencies
@@ -1045,9 +1213,11 @@ def main():
     # 6. llama.cpp
     if args.skip_llama:
         print("[6/8] Skipping llama.cpp (--skip-llama)")
+        if gpu_swapped:
+            print("  NOTE: Environment changed; run install.py without --skip-llama to rebuild llama.cpp for this GPU.")
     else:
         print("[6/8] Building llama.cpp with CUDA support...")
-        build_llama_cpp(venv_dir)
+        build_llama_cpp(venv_dir, nvcc_path=nvcc_path)
     print()
 
     # 7. HuggingFace token
@@ -1064,6 +1234,8 @@ def main():
     print()
 
     # Save GPU state for future swap detection
+    gpu_state_now["gpu_sm"] = gpu_sm
+    gpu_state_now["pytorch_cuda_suffix"] = cuda_suffix
     _save_gpu_state(gpu_state_now)
 
     # Done
