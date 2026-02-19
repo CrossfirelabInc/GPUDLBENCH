@@ -167,6 +167,16 @@ _STRINGS: dict[str, dict[str, str]] = {
         "multigpu_1gpu":            "1 GPU",
         "multigpu_2gpu":            "2 GPU",
         "multigpu_efficiency":      "Ölçekleme Verimi",
+        # — CNN vs Transformer
+        "cnn_vs_tf_title":          "CNN vs Transformer — Ortalama Performans",
+        "cnn_vs_tf_subtitle":       "Geometrik ortalama (en düşük GPU = 1.0x)",
+        "cnn_vs_tf_ylabel":         "Normalize Skor",
+        "cnn_vs_tf_cnn":            "CNN Ortalama",
+        "cnn_vs_tf_transformer":    "Transformer Ortalama",
+        "cnn_vs_tf_cnn_ppw":        "CNN Perf/Watt",
+        "cnn_vs_tf_transformer_ppw":"Transformer Perf/Watt",
+        "cnn_vs_tf_score":          "Verimlilik Skoru",
+        "cnn_vs_tf_perf_watt":      "Performans / Watt",
     },
     "en": {
         "watermark":                "Crossfirelab GPU AI Benchmark Suite",
@@ -260,6 +270,16 @@ _STRINGS: dict[str, dict[str, str]] = {
         "multigpu_1gpu":            "1 GPU",
         "multigpu_2gpu":            "2 GPU",
         "multigpu_efficiency":      "Scaling Efficiency",
+        # — CNN vs Transformer
+        "cnn_vs_tf_title":          "CNN vs Transformer — Average Performance",
+        "cnn_vs_tf_subtitle":       "Geometric mean (lowest GPU = 1.0x)",
+        "cnn_vs_tf_ylabel":         "Normalized Score",
+        "cnn_vs_tf_cnn":            "CNN Average",
+        "cnn_vs_tf_transformer":    "Transformer Average",
+        "cnn_vs_tf_cnn_ppw":        "CNN Perf/Watt",
+        "cnn_vs_tf_transformer_ppw":"Transformer Perf/Watt",
+        "cnn_vs_tf_score":          "Throughput Score",
+        "cnn_vs_tf_perf_watt":      "Performance / Watt",
     },
 }
 
@@ -1258,6 +1278,163 @@ def chart_relative_performance(d: ComparisonData, out: Path):
     _save(fig, out / "cmp_relative_performance.png")
 
 
+# ── CNN vs Transformer Chart ──────────────────────────────────────────────────
+
+def chart_cnn_vs_transformer(d: ComparisonData, out: Path):
+    """Average normalised CNN vs Transformer throughput & perf/watt."""
+    from math import exp, log
+
+    CNN_METRICS = [
+        "train_vision_resnet50_bf16_img_per_sec",
+        "train_vision_resnet101_bf16_img_per_sec",
+        "infer_vision_resnet50_bf16_img_per_sec",
+        "infer_vision_resnet101_bf16_img_per_sec",
+        "detect_faster_rcnn_resnet50_bf16_img_per_sec",
+        "detect_mask_rcnn_resnet50_bf16_img_per_sec",
+    ]
+    TF_METRICS = [
+        "train_nlp_bert-base_bf16_samples_per_sec",
+        "train_nlp_bert-large_bf16_samples_per_sec",
+        "infer_nlp_bert-base_bf16_samples_per_sec",
+        "infer_nlp_bert-large_bf16_samples_per_sec",
+    ]
+    CNN_POWER = [
+        "hw_power_training_vision_avg_w",
+        "hw_power_inference_vision_avg_w",
+        "hw_power_training_detection_avg_w",
+    ]
+    TF_POWER = [
+        "hw_power_training_nlp_avg_w",
+        "hw_power_inference_nlp_avg_w",
+    ]
+
+    def _geomean_normalised(metric_keys: list[str]) -> list[float | None]:
+        """Return per-GPU geometric mean of min-normalised metric values."""
+        n_gpus = d.n_gpus
+        log_sums = [0.0] * n_gpus
+        counts = [0] * n_gpus
+        for mk in metric_keys:
+            vals = d.get(mk)
+            valid = [v for v in vals if v is not None and v > 0]
+            if not valid:
+                continue
+            baseline = min(valid)
+            for gi, v in enumerate(vals):
+                if v is not None and v > 0 and baseline > 0:
+                    log_sums[gi] += log(v / baseline)
+                    counts[gi] += 1
+        result: list[float | None] = []
+        for gi in range(n_gpus):
+            if counts[gi] > 0:
+                result.append(round(exp(log_sums[gi] / counts[gi]), 3))
+            else:
+                result.append(None)
+        return result
+
+    def _avg_power(power_keys: list[str]) -> list[float | None]:
+        """Average power draw across benchmarks for each GPU."""
+        n_gpus = d.n_gpus
+        sums = [0.0] * n_gpus
+        counts = [0] * n_gpus
+        for pk in power_keys:
+            vals = d.get(pk)
+            for gi, v in enumerate(vals):
+                if v is not None and v > 0:
+                    sums[gi] += v
+                    counts[gi] += 1
+        return [round(sums[gi] / counts[gi], 1) if counts[gi] > 0 else None
+                for gi in range(n_gpus)]
+
+    cnn_score = _geomean_normalised(CNN_METRICS)
+    tf_score = _geomean_normalised(TF_METRICS)
+
+    # Need at least one valid score in each family
+    if not any(v is not None for v in cnn_score) and \
+       not any(v is not None for v in tf_score):
+        return
+
+    cnn_power = _avg_power(CNN_POWER)
+    tf_power = _avg_power(TF_POWER)
+
+    # Compute perf/watt (score / watts, then normalise to min)
+    def _ppw(scores, powers):
+        raw = []
+        for s, p in zip(scores, powers):
+            if s is not None and p is not None and p > 0:
+                raw.append(s / p)
+            else:
+                raw.append(None)
+        valid = [v for v in raw if v is not None and v > 0]
+        if not valid:
+            return [None] * len(raw)
+        baseline = min(valid)
+        return [round(v / baseline, 3) if v is not None else None for v in raw]
+
+    cnn_ppw = _ppw(cnn_score, cnn_power)
+    tf_ppw = _ppw(tf_score, tf_power)
+
+    # Build categories
+    cats = []
+    vals_per_gpu: list[list[float | None]] = []  # [gpu_i][cat_j]
+    n_gpus = d.n_gpus
+
+    cat_data = [
+        (S("cnn_vs_tf_cnn"),            cnn_score),
+        (S("cnn_vs_tf_transformer"),     tf_score),
+        (S("cnn_vs_tf_cnn_ppw"),         cnn_ppw),
+        (S("cnn_vs_tf_transformer_ppw"), tf_ppw),
+    ]
+
+    for label, data in cat_data:
+        if any(v is not None for v in data):
+            cats.append(label)
+            for gi in range(n_gpus):
+                if gi >= len(vals_per_gpu):
+                    vals_per_gpu.append([])
+                vals_per_gpu[gi].append(data[gi] if data[gi] is not None else 0)
+
+    if not cats:
+        return
+
+    gpu_names = d.gpu_names()
+    fig, ax = _standard_fig(S("cnn_vs_tf_title"), S("higher_better"),
+                            ACCENT_GREEN, n_gpus, len(cats))
+
+    x = np.arange(len(cats))
+    total_width = min(0.85, 0.15 * n_gpus + 0.25)
+    bar_w = total_width / n_gpus
+    vfs = _val_fontsize(n_gpus)
+
+    all_v = []
+    for gi, gname in enumerate(gpu_names):
+        offset = (gi - (n_gpus - 1) / 2) * bar_w
+        color = GPU_COLORS[gi % len(GPU_COLORS)]
+        gvals = vals_per_gpu[gi]
+        all_v.extend(gvals)
+        bars = ax.bar(x + offset, gvals, bar_w * 0.88, color=color,
+                      edgecolor=BG_COLOR, linewidth=1, zorder=3, label=gname)
+        for bar, v in zip(bars, gvals):
+            if v > 0:
+                ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height(),
+                        f"{v:.2f}x", ha="center", va="bottom",
+                        fontsize=vfs, color=TEXT_COLOR, fontweight="bold")
+
+    ax.axhline(y=1.0, color=ACCENT_RED, linestyle="--", linewidth=1.5, alpha=0.7, zorder=2)
+    ax.text(x[-1] + 0.5, 1.0, "1.0x", color=ACCENT_RED, fontsize=9, va="center")
+
+    ax.set_xticks(x)
+    ax.set_xticklabels(cats, fontsize=_tick_fontsize(n_gpus), rotation=15, ha="right")
+    ax.set_ylabel(S("cnn_vs_tf_ylabel"), fontsize=13)
+    ax.set_title(S("cnn_vs_tf_subtitle"), fontsize=14, color=ACCENT_BLUE, pad=10)
+    ax.grid(axis="y", linestyle="--", zorder=0)
+    ax.set_axisbelow(True)
+    max_v = max(all_v) if all_v else 2
+    ax.set_ylim(0, max_v * 1.22)
+    ax.legend(**_legend_kwargs(n_gpus))
+    fig.tight_layout(rect=[0, 0.02, 1, 0.92])
+    _save(fig, out / "cmp_cnn_vs_transformer.png")
+
+
 # ── Enhanced Dual-GPU Chart ──────────────────────────────────────────────────
 
 def chart_dual_gpu(d: ComparisonData, out: Path):
@@ -1564,6 +1741,7 @@ def _run_charts(json_path: Path, output_dir: Path):
         chart_detection,
         chart_power_efficiency,
         chart_relative_performance,
+        chart_cnn_vs_transformer,
         chart_dual_gpu,
         chart_scorecard,
     ]
