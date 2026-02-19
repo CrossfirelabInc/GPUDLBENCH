@@ -111,20 +111,26 @@ def _run_sudo(cmd):
 
 
 def detect_cuda_version():
-    """Try to figure out which CUDA version is available."""
-    # Try nvcc
-    nvcc = shutil.which("nvcc")
-    if nvcc:
-        r = run(["nvcc", "--version"], capture=True, check=False)
-        m = re.search(r"release (\d+\.\d+)", r.stdout)
-        if m:
-            return m.group(1)
+    """Detect the CUDA version supported by the driver.
 
-    # Fallback: nvidia-smi header line
+    PyTorch uses the *driver* CUDA version at runtime (not nvcc).
+    nvidia-smi reports the max CUDA version the driver supports,
+    which is what determines which PyTorch cu* wheel to install.
+    Falls back to nvcc if nvidia-smi is unavailable.
+    """
+    # Prefer nvidia-smi — this is the driver's CUDA capability
     nvsmi = shutil.which("nvidia-smi")
     if nvsmi:
         r = run(["nvidia-smi"], capture=True, check=False)
         m = re.search(r"CUDA Version:\s*(\d+\.\d+)", r.stdout)
+        if m:
+            return m.group(1)
+
+    # Fallback: nvcc (compile-time toolkit)
+    nvcc = shutil.which("nvcc")
+    if nvcc:
+        r = run(["nvcc", "--version"], capture=True, check=False)
+        m = re.search(r"release (\d+\.\d+)", r.stdout)
         if m:
             return m.group(1)
 
@@ -140,7 +146,7 @@ def cuda_version_to_index(ver_string):
     major, minor = (int(x) for x in ver_string.split(".")[:2])
     if major >= 13 or (major == 12 and minor >= 4):
         return "cu124"
-    if major == 12 and minor >= 1:
+    if major == 12:
         return "cu121"
     if major == 11 and minor >= 8:
         return "cu118"
