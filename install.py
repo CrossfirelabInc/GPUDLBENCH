@@ -546,6 +546,62 @@ def _detect_cuda_architectures() -> str:
     return ""
 
 
+def _gcc_major_version(gcc_path: str) -> int | None:
+    """Return the major version of a gcc binary, or None."""
+    try:
+        r = subprocess.run([gcc_path, "-dumpversion"],
+                           capture_output=True, text=True, timeout=5)
+        if r.returncode == 0:
+            return int(r.stdout.strip().split(".")[0])
+    except Exception:
+        pass
+    return None
+
+
+def _find_compatible_host_compiler() -> tuple[str, str] | None:
+    """Find a GCC ≥ 13 to use as CUDA host compiler.
+
+    Newer glibc (Ubuntu 24.04+) headers use _Float64x / _Float128, which
+    require GCC 13+.  CUDA toolkit may have pulled in GCC 12.  We look for
+    a suitable versioned gcc-N / g++-N on the system and install one if
+    needed.
+
+    Returns (gcc_path, g++_path) or None if the default gcc is already fine.
+    """
+    MIN_GCC = 13
+
+    # Check if default gcc is already good enough
+    default_gcc = shutil.which("gcc")
+    if default_gcc:
+        ver = _gcc_major_version(default_gcc)
+        if ver and ver >= MIN_GCC:
+            return None  # default is fine
+
+    # Scan for versioned gcc-13, gcc-14, etc.
+    for v in range(MIN_GCC, MIN_GCC + 5):
+        gcc = shutil.which(f"gcc-{v}")
+        gxx = shutil.which(f"g++-{v}")
+        if gcc and gxx:
+            print(f"  Found gcc-{v} / g++-{v} (system default gcc is too old)")
+            return (gcc, gxx)
+
+    # Not found — try to install gcc-13
+    if platform.system() == "Linux" and shutil.which("apt-get"):
+        print(f"  Default gcc is too old for system headers — installing gcc-{MIN_GCC}...")
+        try:
+            _run_sudo(["apt-get", "install", "-y", "-qq",
+                        f"gcc-{MIN_GCC}", f"g++-{MIN_GCC}"])
+            gcc = shutil.which(f"gcc-{MIN_GCC}")
+            gxx = shutil.which(f"g++-{MIN_GCC}")
+            if gcc and gxx:
+                return (gcc, gxx)
+        except Exception as e:
+            print(f"  Failed to install gcc-{MIN_GCC}: {e}")
+
+    print("  WARNING: Could not find GCC ≥ 13. Build may fail with newer glibc headers.")
+    return None
+
+
 def build_llama_cpp(venv_dir):
     # --- Ensure cmake ---
     cmake = _find_cmake(venv_dir)
@@ -582,8 +638,7 @@ def build_llama_cpp(venv_dir):
         print("  llama.cpp directory exists, pulling latest...")
         run(["git", "-C", str(llama_dir), "pull", "--ff-only"], check=False)
 
-    cuda_flag = "-DGGML_CUDA=ON" if use_cuda else "-DGGML_CUDA=OFF"
-    print(f"  Building with CMake ({cuda_flag})...")
+    print(f"  Building llama.cpp with CUDA...")
     build_dir = llama_dir / "build"
     jobs = str(os.cpu_count() or 4)
 
@@ -595,13 +650,26 @@ def build_llama_cpp(venv_dir):
     if build_dir.exists():
         shutil.rmtree(build_dir)
 
-    # Use "native" so nvcc auto-detects the GPU arch without llama.cpp's
-    # CMake rewriting it to unsupported suffixes (e.g. 120 → 120a).
+    # Let llama.cpp's own CMake logic pick CUDA architectures — it already
+    # checks CUDAToolkit_VERSION and only adds arches that nvcc supports.
+    # Passing CMAKE_CUDA_ARCHITECTURES ourselves can conflict with their
+    # 12X → 12Xa rewrite logic.
     configure_cmd = [
         cmake, "-B", str(build_dir), "-S", str(llama_dir),
         "-DGGML_CUDA=ON", "-DCMAKE_BUILD_TYPE=Release",
-        "-DCMAKE_CUDA_ARCHITECTURES=native",
     ]
+
+    # Ensure the CUDA host compiler is compatible with system headers.
+    # Ubuntu 24.04+ glibc uses _Float64x/_Float128 which need GCC ≥ 13,
+    # but CUDA toolkit packages can pull in GCC 12 as default.
+    host_cc = _find_compatible_host_compiler()
+    if host_cc:
+        gcc, gxx = host_cc
+        print(f"  Using host compiler: {gcc}")
+        configure_cmd += [
+            f"-DCMAKE_C_COMPILER={gcc}",
+            f"-DCMAKE_CXX_COMPILER={gxx}",
+        ]
 
     try:
         run(configure_cmd)
