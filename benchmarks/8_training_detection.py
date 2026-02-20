@@ -30,6 +30,7 @@ from benchmarks.config import (
     DETECTION_ITERATIONS,
     DETECTION_NUM_CLASSES,
     DETECTION_WARMUP,
+    RANDOM_SEED,
     TRAINING_PRECISIONS,
 )
 from benchmarks.benchmark_utils import (
@@ -85,6 +86,18 @@ def _make_dummy_targets(batch_size: int, device: torch.device,
     return targets
 
 
+# Fixed RPN/ROI kwargs to ensure constant compute per iteration.
+# Without these, NMS produces a *variable* number of proposals depending
+# on model weights, which is the main source of run-to-run variance.
+_FIXED_RPN_KWARGS: dict = {
+    "rpn_pre_nms_top_n_train":   512,
+    "rpn_post_nms_top_n_train":  512,
+    "rpn_pre_nms_top_n_test":    512,
+    "rpn_post_nms_top_n_test":   512,
+    "box_batch_size_per_image":  256,
+    "rpn_batch_size_per_image":  256,
+}
+
 # Registry of supported detection models
 _MODEL_REGISTRY: dict = {
     "faster-rcnn-resnet50": {
@@ -98,6 +111,18 @@ _MODEL_REGISTRY: dict = {
         "masks":   True,
     },
 }
+
+
+def _gpu_thermal_warmup(device: torch.device, duration_sec: float = 15) -> None:
+    """Run a heavy matmul loop to bring GPU to stable thermal/clock state."""
+    a = torch.randn(4096, 4096, device=device, dtype=torch.float32)
+    b = torch.randn(4096, 4096, device=device, dtype=torch.float32)
+    end_time = time.perf_counter() + duration_sec
+    while time.perf_counter() < end_time:
+        torch.mm(a, b)
+    torch.cuda.synchronize()
+    del a, b
+    torch.cuda.empty_cache()
 
 
 def benchmark_model(
@@ -115,8 +140,18 @@ def benchmark_model(
     print(f"  Testing: {tag}...", end=" ", flush=True)
 
     try:
-        # Always create model in FP32; AMP handles casting
-        model = spec["factory"](weights=None, num_classes=DETECTION_NUM_CLASSES)
+        # Enable deterministic algorithms for reproducibility
+        torch.use_deterministic_algorithms(True, warn_only=True)
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
+
+        # Always create model in FP32; AMP handles casting.
+        # Pass fixed RPN/ROI counts to keep compute constant per iteration.
+        model = spec["factory"](
+            weights=None,
+            num_classes=DETECTION_NUM_CLASSES,
+            **_FIXED_RPN_KWARGS,
+        )
         model = model.to(device)
         model.train()
 
@@ -129,10 +164,11 @@ def benchmark_model(
         # Synthetic data — always FP32 images (AMP casts internally)
         images = [torch.randn(3, DETECTION_IMAGE_SIZE, DETECTION_IMAGE_SIZE, device=device)
                   for _ in range(batch_size)]
-        targets = _make_dummy_targets(batch_size, device, with_masks=spec["masks"])
 
-        # Warmup
-        for _ in range(warmup):
+        # Warmup — regenerate targets each iteration with fixed seed
+        for i in range(warmup):
+            torch.manual_seed(RANDOM_SEED + i)
+            targets = _make_dummy_targets(batch_size, device, with_masks=spec["masks"])
             optimizer.zero_grad(set_to_none=True)
             with amp_ctx:
                 loss_dict = model(images, targets)
@@ -147,9 +183,11 @@ def benchmark_model(
 
         torch.cuda.synchronize()
 
-        # Benchmark
+        # Benchmark — regenerate targets each iteration with fixed seed
         times: list[float] = []
-        for _ in range(iterations):
+        for i in range(iterations):
+            torch.manual_seed(RANDOM_SEED + warmup + i)
+            targets = _make_dummy_targets(batch_size, device, with_masks=spec["masks"])
             start = time.perf_counter()
             optimizer.zero_grad(set_to_none=True)
             with amp_ctx:
@@ -168,6 +206,11 @@ def benchmark_model(
         avg_time = sum(times) / len(times)
         throughput = batch_size / avg_time
         print(f"{throughput:.2f} img/s")
+
+        # Restore non-deterministic mode for other benchmarks
+        torch.use_deterministic_algorithms(False)
+        torch.backends.cudnn.deterministic = False
+        torch.backends.cudnn.benchmark = True
 
         del model, optimizer, images, targets, scaler
         torch.cuda.empty_cache()
@@ -226,6 +269,13 @@ def main() -> None:
     print(f"Precisions: {precisions}")
     print(f"Batch sizes: {batch_sizes}")
     print()
+
+    # ── GPU thermal warmup ─────────────────────────────────────────────
+    # Run a dummy matmul workload to bring GPU clocks and temperature to
+    # a stable operating point before any measurements.
+    print("Warming up GPU to stabilise clocks/thermals...", flush=True)
+    _gpu_thermal_warmup(device, duration_sec=15)
+    print("GPU warm-up complete.\n")
 
     monitor = None
     if not args.no_monitor:
