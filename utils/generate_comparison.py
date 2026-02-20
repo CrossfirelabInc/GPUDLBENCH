@@ -685,6 +685,18 @@ def write_json(rows: list[dict], col_ids: list[str],
 class ComparisonData:
     """Parsed comparison.json with convenient metric lookup."""
 
+    # Key throughput metrics used to compute overall DL performance rank.
+    _PERF_METRICS = [
+        "train_vision_resnet50_fp16_img_per_sec",
+        "train_vision_resnet101_fp16_img_per_sec",
+        "train_nlp_bert-base_bf16_samples_per_sec",
+        "train_nlp_bert-large_bf16_samples_per_sec",
+        "infer_vision_resnet50_fp16_img_per_sec",
+        "infer_nlp_bert-base_bf16_samples_per_sec",
+        "gemm_bf16_peak_tflops",
+        "fund_d2d_bw_peak_gb_s",
+    ]
+
     def __init__(self, path: Path):
         with path.open() as f:
             raw = json.load(f)
@@ -695,6 +707,27 @@ class ComparisonData:
         for row in raw["metrics"]:
             mid = row["metric_id"]
             self._metrics[mid] = {k: v for k, v in row.items() if k != "metric_id"}
+        self._sort_by_performance()
+
+    def _sort_by_performance(self) -> None:
+        """Sort GPUs by geometric mean of key DL throughput metrics (best first)."""
+        from math import log, exp
+        scores: list[tuple[float, int]] = []
+        for gi, cid in enumerate(self.col_ids):
+            log_sum, count = 0.0, 0
+            for mid in self._PERF_METRICS:
+                row = self._metrics.get(mid, {})
+                v = row.get(cid)
+                if v is not None and v > 0:
+                    log_sum += log(v)
+                    count += 1
+            score = exp(log_sum / count) if count > 0 else 0.0
+            scores.append((score, gi))
+        # Sort descending by score (best GPU first)
+        order = [gi for _, gi in sorted(scores, key=lambda x: -x[0])]
+        self.col_ids = [self.col_ids[i] for i in order]
+        self.columns = [self.columns[i] for i in order]
+        self.col_labels = [self.col_labels[i] for i in order]
 
     @property
     def n_gpus(self) -> int:
@@ -744,10 +777,9 @@ def _tick_fontsize(n_gpus: int) -> int:
 
 def _legend_kwargs(n_gpus: int) -> dict:
     if n_gpus <= 4:
-        return dict(fontsize=10, loc="upper left",
+        return dict(fontsize=10, loc="lower right",
                     facecolor=CARD_COLOR, edgecolor=GRID_COLOR)
-    return dict(fontsize=9, loc="upper center", ncol=min(n_gpus, 4),
-                bbox_to_anchor=(0.5, -0.08),
+    return dict(fontsize=9, loc="lower right",
                 facecolor=CARD_COLOR, edgecolor=GRID_COLOR)
 
 
@@ -877,14 +909,15 @@ def chart_training_vision(d: ComparisonData, out: Path):
         for prec in ["fp32", "fp16", "bf16"]:
             mid = f"train_vision_{model}_{prec}_img_per_sec"
             if any(v is not None for v in d.get(mid)):
-                cats.append(f"{model.upper()}\n{prec.upper()}")
+                cats.append(f"{model.upper()} {prec.upper()}")
                 keys.append(mid)
     if not cats:
         return
     vals = [[d.get(m)[gi] for m in keys] for gi in range(d.n_gpus)]
     fig, ax = _standard_fig(S("train_vision_title"), S("higher_better"),
-                            ACCENT_GREEN, d.n_gpus, len(cats))
-    _grouped_bar(ax, cats, d.gpu_names(), vals, S("train_vision_ylabel"),
+                            ACCENT_GREEN, d.n_gpus, len(cats),
+                            height_ratio=max(1.0, len(cats) * 0.18))
+    _horizontal_grouped_bar(ax, cats, d.gpu_names(), vals, S("train_vision_ylabel"),
                  S("train_vision_subtitle"))
     fig.tight_layout(rect=[0, 0.02, 1, 0.92])
     _save(fig, out / "cmp_training_vision.png")
@@ -896,14 +929,15 @@ def chart_training_nlp(d: ComparisonData, out: Path):
         for prec in ["fp32", "fp16", "bf16"]:
             mid = f"train_nlp_{model}_{prec}_samples_per_sec"
             if any(v is not None for v in d.get(mid)):
-                cats.append(f"{model.upper()}\n{prec.upper()}")
+                cats.append(f"{model.upper()} {prec.upper()}")
                 keys.append(mid)
     if not cats:
         return
     vals = [[d.get(m)[gi] for m in keys] for gi in range(d.n_gpus)]
     fig, ax = _standard_fig(S("train_nlp_title"), S("higher_better"),
-                            ACCENT_GREEN, d.n_gpus, len(cats))
-    _grouped_bar(ax, cats, d.gpu_names(), vals, S("train_nlp_ylabel"),
+                            ACCENT_GREEN, d.n_gpus, len(cats),
+                            height_ratio=max(1.0, len(cats) * 0.18))
+    _horizontal_grouped_bar(ax, cats, d.gpu_names(), vals, S("train_nlp_ylabel"),
                  S("train_nlp_subtitle"))
     fig.tight_layout(rect=[0, 0.02, 1, 0.92])
     _save(fig, out / "cmp_training_nlp.png")
@@ -915,14 +949,15 @@ def chart_inference_vision(d: ComparisonData, out: Path):
         for prec in ["fp32", "fp16", "bf16"]:
             mid = f"infer_vision_{model}_{prec}_img_per_sec"
             if any(v is not None for v in d.get(mid)):
-                cats.append(f"{model.upper()}\n{prec.upper()}")
+                cats.append(f"{model.upper()} {prec.upper()}")
                 keys.append(mid)
     if not cats:
         return
     vals = [[d.get(m)[gi] for m in keys] for gi in range(d.n_gpus)]
     fig, ax = _standard_fig(S("infer_vision_title"), S("higher_better"),
-                            ACCENT_GREEN, d.n_gpus, len(cats))
-    _grouped_bar(ax, cats, d.gpu_names(), vals, S("infer_vision_ylabel"),
+                            ACCENT_GREEN, d.n_gpus, len(cats),
+                            height_ratio=max(1.0, len(cats) * 0.18))
+    _horizontal_grouped_bar(ax, cats, d.gpu_names(), vals, S("infer_vision_ylabel"),
                  S("infer_vision_subtitle"))
     fig.tight_layout(rect=[0, 0.02, 1, 0.92])
     _save(fig, out / "cmp_inference_vision.png")
@@ -934,14 +969,15 @@ def chart_inference_nlp(d: ComparisonData, out: Path):
         for prec in ["fp32", "fp16", "bf16"]:
             mid = f"infer_nlp_{model}_{prec}_samples_per_sec"
             if any(v is not None for v in d.get(mid)):
-                cats.append(f"{model.upper()}\n{prec.upper()}")
+                cats.append(f"{model.upper()} {prec.upper()}")
                 keys.append(mid)
     if not cats:
         return
     vals = [[d.get(m)[gi] for m in keys] for gi in range(d.n_gpus)]
     fig, ax = _standard_fig(S("infer_nlp_title"), S("higher_better"),
-                            ACCENT_GREEN, d.n_gpus, len(cats))
-    _grouped_bar(ax, cats, d.gpu_names(), vals, S("infer_nlp_ylabel"),
+                            ACCENT_GREEN, d.n_gpus, len(cats),
+                            height_ratio=max(1.0, len(cats) * 0.18))
+    _horizontal_grouped_bar(ax, cats, d.gpu_names(), vals, S("infer_nlp_ylabel"),
                  S("infer_nlp_subtitle"))
     fig.tight_layout(rect=[0, 0.02, 1, 0.92])
     _save(fig, out / "cmp_inference_nlp.png")
@@ -1007,8 +1043,9 @@ def chart_gemm(d: ComparisonData, out: Path):
         return
     vals = [[d.get(m)[gi] for m in keys] for gi in range(d.n_gpus)]
     fig, ax = _standard_fig(S("gemm_title"), S("higher_better"),
-                            ACCENT_GREEN, d.n_gpus, len(cats))
-    _grouped_bar(ax, cats, d.gpu_names(), vals, S("gemm_ylabel"),
+                            ACCENT_GREEN, d.n_gpus, len(cats),
+                            height_ratio=max(1.0, len(cats) * 0.18))
+    _horizontal_grouped_bar(ax, cats, d.gpu_names(), vals, S("gemm_ylabel"),
                  S("gemm_subtitle"), fmt="{:.1f}")
     fig.tight_layout(rect=[0, 0.02, 1, 0.92])
     _save(fig, out / "cmp_gemm.png")
@@ -1017,8 +1054,6 @@ def chart_gemm(d: ComparisonData, out: Path):
 def chart_fundamentals(d: ComparisonData, out: Path):
     specs = [
         ("fund_d2d_bw_peak_gb_s",            S("fund_mem_bw"),       "{:.0f}"),
-        ("fund_pcie_h2d_gb_s",                S("fund_pcie_h2d"),     "{:.1f}"),
-        ("fund_pcie_d2h_gb_s",                S("fund_pcie_d2h"),     "{:.1f}"),
         ("fund_kernel_launch_latency_us",     S("fund_kernel_lat"),   "{:.1f}"),
         ("fund_reduction_peak_gb_s",          S("fund_reduction"),    "{:.0f}"),
         ("fund_spmm_peak_gflops",             S("fund_spmm"),        "{:.0f}"),
@@ -1038,30 +1073,36 @@ def chart_fundamentals(d: ComparisonData, out: Path):
     n_gpus = d.n_gpus
 
     fig, ax = _standard_fig(S("fund_title"), S("bw_high_latency_low"),
-                            ACCENT_CYAN, n_gpus, len(cats))
+                            ACCENT_CYAN, n_gpus, len(cats),
+                            height_ratio=max(1.0, len(cats) * 0.18))
 
-    x = np.arange(len(cats))
-    total_width = min(0.85, 0.15 * n_gpus + 0.25)
-    bar_w = total_width / n_gpus
+    y = np.arange(len(cats))
+    total_height = min(0.85, 0.15 * n_gpus + 0.25)
+    bar_h = total_height / n_gpus
     vfs = _val_fontsize(n_gpus)
 
+    all_vals = []
     for gi, gname in enumerate(d.gpu_names()):
-        offset = (gi - (n_gpus - 1) / 2) * bar_w
+        offset = (gi - (n_gpus - 1) / 2) * bar_h
         color = GPU_COLORS[gi % len(GPU_COLORS)]
         gvals = [v if v is not None else 0 for v in vals[gi]]
-        bars = ax.bar(x + offset, gvals, bar_w * 0.88, color=color,
-                      edgecolor=BG_COLOR, linewidth=1, zorder=3, label=gname)
+        all_vals.extend(gvals)
+        bars = ax.barh(y + offset, gvals, bar_h * 0.88, color=color,
+                       edgecolor=BG_COLOR, linewidth=1, zorder=3, label=gname)
         for bar, v, fmt in zip(bars, gvals, fmts):
             if v > 0:
-                ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height(),
-                        fmt.format(v), ha="center", va="bottom",
+                ax.text(v + max(all_vals) * 0.01, bar.get_y() + bar.get_height() / 2,
+                        fmt.format(v), va="center",
                         fontsize=vfs, color=TEXT_COLOR, fontweight="bold")
 
-    ax.set_xticks(x)
-    ax.set_xticklabels(cats, fontsize=_tick_fontsize(n_gpus))
+    ax.set_yticks(y)
+    ax.set_yticklabels(cats, fontsize=_tick_fontsize(n_gpus))
     ax.set_title(S("fund_subtitle"), fontsize=12, color=SUBTEXT_COLOR, pad=10)
-    ax.grid(axis="y", linestyle="--", zorder=0)
+    ax.grid(axis="x", linestyle="--", zorder=0)
     ax.set_axisbelow(True)
+    ax.invert_yaxis()
+    max_v = max(all_vals) if all_vals else 1
+    ax.set_xlim(0, max_v * 1.25)
     ax.legend(**_legend_kwargs(n_gpus))
     fig.tight_layout(rect=[0, 0.02, 1, 0.92])
     _save(fig, out / "cmp_fundamentals.png")
@@ -1082,8 +1123,8 @@ def chart_detection(d: ComparisonData, out: Path):
     vals = [[d.get(m)[gi] for m in keys] for gi in range(d.n_gpus)]
     fig, ax = _standard_fig(S("detect_title"), S("higher_better"),
                             ACCENT_GREEN, d.n_gpus, len(cats),
-                            height_ratio=0.7)
-    _grouped_bar(ax, cats, d.gpu_names(), vals, S("detect_ylabel"),
+                            height_ratio=max(1.0, len(cats) * 0.18))
+    _horizontal_grouped_bar(ax, cats, d.gpu_names(), vals, S("detect_ylabel"),
                  S("detect_subtitle"), fmt="{:.1f}")
     fig.tight_layout(rect=[0, 0.03, 1, 0.92])
     _save(fig, out / "cmp_detection.png")
@@ -1189,8 +1230,9 @@ def chart_power_efficiency(d: ComparisonData, out: Path):
         fig, ax = _standard_fig(
             f"{S('power_eff_title')} \u2014 {spec['label']}",
             S("higher_better"), ACCENT_GREEN,
-            d.n_gpus, len(cats))
-        _grouped_bar(ax, cats, d.gpu_names(), vals,
+            d.n_gpus, len(cats),
+            height_ratio=max(1.0, len(cats) * 0.18))
+        _horizontal_grouped_bar(ax, cats, d.gpu_names(), vals,
                      spec["unit"], S("power_eff_subtitle"), fmt="{:.2f}")
         fig.tight_layout(rect=[0, 0.02, 1, 0.92])
         _save(fig, out / spec["filename"])
@@ -1241,38 +1283,40 @@ def chart_relative_performance(d: ComparisonData, out: Path):
 
     n_gpus = d.n_gpus
     fig, ax = _standard_fig(S("relative_title"), S("higher_better"),
-                            ACCENT_GREEN, n_gpus, len(cats))
+                            ACCENT_GREEN, n_gpus, len(cats),
+                            height_ratio=max(1.0, len(cats) * 0.18))
 
-    x = np.arange(len(cats))
-    total_width = min(0.85, 0.15 * n_gpus + 0.25)
-    bar_w = total_width / n_gpus
+    y = np.arange(len(cats))
+    total_height = min(0.85, 0.15 * n_gpus + 0.25)
+    bar_h = total_height / n_gpus
     vfs = _val_fontsize(n_gpus)
 
     all_vals_flat = []
     for gi, gname in enumerate(d.gpu_names()):
-        offset = (gi - (n_gpus - 1) / 2) * bar_w
+        offset = (gi - (n_gpus - 1) / 2) * bar_h
         color = GPU_COLORS[gi % len(GPU_COLORS)]
         gvals = [v if v is not None else 0 for v in vals[gi]]
         all_vals_flat.extend(gvals)
-        bars = ax.bar(x + offset, gvals, bar_w * 0.88, color=color,
-                      edgecolor=BG_COLOR, linewidth=1, zorder=3, label=gname)
+        bars = ax.barh(y + offset, gvals, bar_h * 0.88, color=color,
+                       edgecolor=BG_COLOR, linewidth=1, zorder=3, label=gname)
         for bar, v in zip(bars, gvals):
             if v > 0:
-                ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height(),
-                        f"{v:.2f}x", ha="center", va="bottom",
+                ax.text(v + max(all_vals_flat) * 0.01, bar.get_y() + bar.get_height() / 2,
+                        f"{v:.2f}x", va="center",
                         fontsize=vfs, color=TEXT_COLOR, fontweight="bold")
 
-    ax.axhline(y=1.0, color=ACCENT_RED, linestyle="--", linewidth=1.5, alpha=0.7, zorder=2)
-    ax.text(x[-1] + 0.5, 1.0, "1.0x", color=ACCENT_RED, fontsize=9, va="center")
-
-    ax.set_xticks(x)
-    ax.set_xticklabels(cats, fontsize=_tick_fontsize(n_gpus))
-    ax.set_ylabel(S("relative_xlabel"), fontsize=13)
-    ax.set_title(S("relative_subtitle"), fontsize=14, color=ACCENT_BLUE, pad=10)
-    ax.grid(axis="y", linestyle="--", zorder=0)
-    ax.set_axisbelow(True)
     max_v = max(all_vals_flat) if all_vals_flat else 2
-    ax.set_ylim(0, max_v * 1.18)
+    ax.axvline(x=1.0, color=ACCENT_RED, linestyle="--", linewidth=1.5, alpha=0.7, zorder=2)
+    ax.text(1.0, y[-1] + 0.5, "1.0x", color=ACCENT_RED, fontsize=9, ha="center")
+
+    ax.set_yticks(y)
+    ax.set_yticklabels(cats, fontsize=_tick_fontsize(n_gpus))
+    ax.set_xlabel(S("relative_xlabel"), fontsize=13)
+    ax.set_title(S("relative_subtitle"), fontsize=14, color=ACCENT_BLUE, pad=10)
+    ax.grid(axis="x", linestyle="--", zorder=0)
+    ax.set_axisbelow(True)
+    ax.set_xlim(0, max_v * 1.25)
+    ax.invert_yaxis()
     ax.legend(**_legend_kwargs(n_gpus))
     fig.tight_layout(rect=[0, 0.02, 1, 0.92])
     _save(fig, out / "cmp_relative_performance.png")
@@ -1398,38 +1442,40 @@ def chart_cnn_vs_transformer(d: ComparisonData, out: Path):
 
     gpu_names = d.gpu_names()
     fig, ax = _standard_fig(S("cnn_vs_tf_title"), S("higher_better"),
-                            ACCENT_GREEN, n_gpus, len(cats))
+                            ACCENT_GREEN, n_gpus, len(cats),
+                            height_ratio=max(1.0, len(cats) * 0.18))
 
-    x = np.arange(len(cats))
-    total_width = min(0.85, 0.15 * n_gpus + 0.25)
-    bar_w = total_width / n_gpus
+    y = np.arange(len(cats))
+    total_height = min(0.85, 0.15 * n_gpus + 0.25)
+    bar_h = total_height / n_gpus
     vfs = _val_fontsize(n_gpus)
 
     all_v = []
     for gi, gname in enumerate(gpu_names):
-        offset = (gi - (n_gpus - 1) / 2) * bar_w
+        offset = (gi - (n_gpus - 1) / 2) * bar_h
         color = GPU_COLORS[gi % len(GPU_COLORS)]
         gvals = vals_per_gpu[gi]
         all_v.extend(gvals)
-        bars = ax.bar(x + offset, gvals, bar_w * 0.88, color=color,
-                      edgecolor=BG_COLOR, linewidth=1, zorder=3, label=gname)
+        bars = ax.barh(y + offset, gvals, bar_h * 0.88, color=color,
+                       edgecolor=BG_COLOR, linewidth=1, zorder=3, label=gname)
         for bar, v in zip(bars, gvals):
             if v > 0:
-                ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height(),
-                        f"{v:.2f}x", ha="center", va="bottom",
+                ax.text(v + max(all_v) * 0.01, bar.get_y() + bar.get_height() / 2,
+                        f"{v:.2f}x", va="center",
                         fontsize=vfs, color=TEXT_COLOR, fontweight="bold")
 
-    ax.axhline(y=1.0, color=ACCENT_RED, linestyle="--", linewidth=1.5, alpha=0.7, zorder=2)
-    ax.text(x[-1] + 0.5, 1.0, "1.0x", color=ACCENT_RED, fontsize=9, va="center")
-
-    ax.set_xticks(x)
-    ax.set_xticklabels(cats, fontsize=_tick_fontsize(n_gpus), rotation=15, ha="right")
-    ax.set_ylabel(S("cnn_vs_tf_ylabel"), fontsize=13)
-    ax.set_title(S("cnn_vs_tf_subtitle"), fontsize=14, color=ACCENT_BLUE, pad=10)
-    ax.grid(axis="y", linestyle="--", zorder=0)
-    ax.set_axisbelow(True)
     max_v = max(all_v) if all_v else 2
-    ax.set_ylim(0, max_v * 1.22)
+    ax.axvline(x=1.0, color=ACCENT_RED, linestyle="--", linewidth=1.5, alpha=0.7, zorder=2)
+    ax.text(1.0, y[-1] + 0.5, "1.0x", color=ACCENT_RED, fontsize=9, ha="center")
+
+    ax.set_yticks(y)
+    ax.set_yticklabels(cats, fontsize=_tick_fontsize(n_gpus))
+    ax.set_xlabel(S("cnn_vs_tf_ylabel"), fontsize=13)
+    ax.set_title(S("cnn_vs_tf_subtitle"), fontsize=14, color=ACCENT_BLUE, pad=10)
+    ax.grid(axis="x", linestyle="--", zorder=0)
+    ax.set_axisbelow(True)
+    ax.set_xlim(0, max_v * 1.25)
+    ax.invert_yaxis()
     ax.legend(**_legend_kwargs(n_gpus))
     fig.tight_layout(rect=[0, 0.02, 1, 0.92])
     _save(fig, out / "cmp_cnn_vs_transformer.png")
