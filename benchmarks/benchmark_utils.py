@@ -194,47 +194,53 @@ def gpu_thermal_warmup(device: torch.device, duration_sec: float = 15) -> None:
     logger.info("GPU warm-up complete.")
 
 
-# ── Batch-size selection ──────────────────────────────────────────────────────
-
-_VISION_TRAIN_BS = [(40, [16, 32, 64, 128, 256]), (24, [16, 32, 64, 128]),
-                    (16, [8, 16, 32, 64]), (8, [4, 8, 16, 32]), (0, [2, 4, 8])]
-_VISION_INFER_BS = [(40, [1, 8, 16, 32, 64, 128]), (24, [1, 8, 16, 32, 64]),
-                    (16, [1, 8, 16, 32]), (8, [1, 4, 8, 16]), (0, [1, 2, 4, 8])]
-_NLP_TRAIN_BASE  = [(40, [8, 16, 32, 64]), (24, [8, 16, 32]),
-                    (16, [4, 8, 16]), (0, [2, 4, 8])]
-_NLP_TRAIN_LARGE = [(40, [4, 8, 16, 32]), (24, [2, 4, 8]),
-                    (16, [2, 4]), (0, [1, 2])]
-_NLP_INFER_BASE  = [(40, [1, 8, 16, 32, 64]), (24, [1, 8, 16, 32]),
-                    (16, [1, 4, 8, 16]), (0, [1, 2, 4, 8])]
-_NLP_INFER_LARGE = [(40, [1, 4, 8, 16, 32]), (24, [1, 4, 8, 16]),
-                    (16, [1, 2, 4, 8]), (0, [1, 2, 4])]
-_DETECTION_BS    = [(40, [2, 4, 8]), (24, [1, 2, 4]),
-                    (16, [1, 2]), (0, [1])]
+# ── Batch-size auto-scaling ───────────────────────────────────────────────────
+#
+# Instead of hard-coded VRAM-tier tables, generate a power-of-two sequence
+# starting from a safe minimum.  Each benchmark gradually increases the batch
+# size until OOM, so the list intentionally contains sizes that *may* OOM —
+# the benchmark functions already handle that gracefully and stop.
 
 
-def _pick(table: list, vram_gb: float) -> list[int]:
-    for threshold, sizes in table:
-        if vram_gb >= threshold:
-            return sizes
-    return table[-1][1]
+def _pow2_range(start: int, max_bs: int = 1024) -> list[int]:
+    """Return [start, start*2, start*4, ...] up to *max_bs* (inclusive)."""
+    sizes: list[int] = []
+    bs = start
+    while bs <= max_bs:
+        sizes.append(bs)
+        bs *= 2
+    return sizes
 
 
 def get_vision_train_batch_sizes(vram_gb: float) -> list[int]:
-    return _pick(_VISION_TRAIN_BS, vram_gb)
+    # Start at 2 for tiny GPUs, 8 for normal ones.  Upper bound is generous
+    # — OOM will stop the sweep naturally.
+    start = 2 if vram_gb < 8 else 8
+    return _pow2_range(start, max_bs=512)
+
 
 def get_vision_infer_batch_sizes(vram_gb: float) -> list[int]:
-    return _pick(_VISION_INFER_BS, vram_gb)
+    # Always include BS=1 for latency measurement.
+    return _pow2_range(1, max_bs=512)
+
 
 def get_nlp_train_batch_sizes(vram_gb: float, model_name: str) -> list[int]:
-    table = _NLP_TRAIN_LARGE if "large" in model_name.lower() else _NLP_TRAIN_BASE
-    return _pick(table, vram_gb)
+    if "large" in model_name.lower():
+        start = 1 if vram_gb < 16 else 2
+        return _pow2_range(start, max_bs=128)
+    # bert-base
+    start = 2 if vram_gb < 8 else 4
+    return _pow2_range(start, max_bs=256)
+
 
 def get_nlp_infer_batch_sizes(vram_gb: float, model_name: str) -> list[int]:
-    table = _NLP_INFER_LARGE if "large" in model_name.lower() else _NLP_INFER_BASE
-    return _pick(table, vram_gb)
+    # Always include BS=1 for latency measurement.
+    max_bs = 128 if "large" in model_name.lower() else 256
+    return _pow2_range(1, max_bs=max_bs)
+
 
 def get_detection_batch_sizes(vram_gb: float) -> list[int]:
-    return _pick(_DETECTION_BS, vram_gb)
+    return _pow2_range(1, max_bs=32)
 
 
 # ── AMP helpers ───────────────────────────────────────────────────────────────

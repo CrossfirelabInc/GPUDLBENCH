@@ -270,6 +270,8 @@ def main() -> None:
                                          warmup=args.warmup,
                                          iterations=args.iterations)
                 results.append(result)
+                if result["status"] == "oom":
+                    break  # larger batch sizes will also OOM
         print()
 
     hw_stats = monitor.stop() if monitor else {}

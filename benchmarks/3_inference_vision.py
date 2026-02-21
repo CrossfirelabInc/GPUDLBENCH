@@ -163,6 +163,8 @@ def main() -> None:
                 result = benchmark_model(model_name, prec, bs, device,
                                          warmup=args.warmup, iterations=args.iterations)
                 results.append(result)
+                if result["status"] == "oom":
+                    break  # larger batch sizes will also OOM
 
     hw_stats = monitor.stop() if monitor else {}
 
