@@ -62,8 +62,11 @@ def _bench_gemm_fp8(N: int, device: torch.device) -> dict | None:
     dt = torch.float8_e4m3fn
     a_fp16 = torch.randn(N, N, device=device, dtype=torch.float16)
     b_fp16 = torch.randn(N, N, device=device, dtype=torch.float16)
-    a8 = a_fp16.to(dt)
-    b8 = b_fp16.to(dt).t().contiguous()  # _scaled_mm expects column-major B
+    # _scaled_mm requires: A row-major (contiguous) × B column-major (.t()).
+    # Do NOT call .contiguous() on B after .t() — that converts it back to
+    # row-major, which cuBLASLt rejects under deterministic mode.
+    a8 = a_fp16.to(dt).contiguous()
+    b8 = b_fp16.to(dt).t()
     scale_a = torch.ones(1, device=device, dtype=torch.float32)
     scale_b = torch.ones(1, device=device, dtype=torch.float32)
 
