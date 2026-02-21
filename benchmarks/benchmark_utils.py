@@ -8,7 +8,10 @@ import csv
 import json
 import logging
 import os
+import platform
 import random
+import re
+import shutil
 import subprocess
 import sys
 import threading
@@ -53,12 +56,10 @@ def get_gpu_info(device_id: int = 0) -> dict:
 
 def get_system_info(device_id: int = 0) -> dict:
     """Collect environment info for reproducibility."""
-    import platform as _platform
-
     info: dict = {
-        "python_version": _platform.python_version(),
-        "os": f"{_platform.system()} {_platform.release()}",
-        "os_version": _platform.version(),
+        "python_version": platform.python_version(),
+        "os": f"{platform.system()} {platform.release()}",
+        "os_version": platform.version(),
         "pytorch_version": torch.__version__,
         "pytorch_cuda_version": getattr(torch.version, "cuda", None),
         "cudnn_version": str(torch.backends.cudnn.version()) if torch.backends.cudnn.is_available() else None,
@@ -76,12 +77,10 @@ def get_system_info(device_id: int = 0) -> dict:
 
     # CUDA toolkit (nvcc)
     try:
-        import re as _re
-        import shutil as _shutil
-        nvcc = _shutil.which("nvcc")
+        nvcc = shutil.which("nvcc")
         if nvcc:
             r = subprocess.run(["nvcc", "--version"], capture_output=True, text=True, timeout=5)
-            m = _re.search(r"release (\d+\.\d+)", r.stdout)
+            m = re.search(r"release (\d+\.\d+)", r.stdout)
             info["cuda_toolkit_version"] = m.group(1) if m else None
         else:
             info["cuda_toolkit_version"] = None

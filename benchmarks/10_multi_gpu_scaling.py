@@ -27,6 +27,8 @@ from pathlib import Path
 
 import torch
 import torch.nn as nn
+from torchvision.models import resnet50
+from transformers import BertConfig, BertForSequenceClassification
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -56,13 +58,11 @@ from benchmarks.config import (
 # ──────────────────────────── model builders ──────────────────────────────────
 
 def _build_resnet50() -> nn.Module:
-    from torchvision.models import resnet50
     model = resnet50(weights=None, num_classes=VISION_NUM_CLASSES)
     return model
 
 
 def _build_bert_base() -> nn.Module:
-    from transformers import BertConfig, BertForSequenceClassification
     cfg = BertConfig(**NLP_MODELS["bert-base"],
                      vocab_size=NLP_VOCAB_SIZE,
                      num_labels=2)

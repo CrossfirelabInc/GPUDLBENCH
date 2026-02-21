@@ -10,6 +10,9 @@ Usage:
 
 import argparse
 import io
+import json
+import re
+import shutil
 import subprocess
 import sys
 import time
@@ -105,9 +108,7 @@ def check_gpu():
 
     # nvcc (CUDA toolkit) version
     try:
-        import shutil
         if shutil.which("nvcc"):
-            import re
             r = subprocess.run(
                 ["nvcc", "--version"], capture_output=True, text=True, timeout=5,
             )
@@ -233,7 +234,6 @@ def main():
     seconds = int(elapsed % 60)
 
     # Write session metadata
-    import json as _json
     session_meta = {
         "session_id": session_id,
         "run_start": run_start.isoformat(),
@@ -245,7 +245,7 @@ def main():
     }
     meta_path = session_dir / "session_meta.json"
     with open(meta_path, "w") as _f:
-        _json.dump(session_meta, _f, indent=2)
+        json.dump(session_meta, _f, indent=2)
 
     print()
     print("=" * 60)

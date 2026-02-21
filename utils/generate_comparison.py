@@ -19,11 +19,13 @@ import json
 import math
 import sys
 from datetime import datetime
+from math import exp, log
 from pathlib import Path
 from typing import Any
 
 import matplotlib
 matplotlib.use("Agg")
+import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.patches import FancyBboxPatch
@@ -711,7 +713,6 @@ class ComparisonData:
 
     def _sort_by_performance(self) -> None:
         """Sort GPUs by geometric mean of key DL throughput metrics (best first)."""
-        from math import log, exp
         scores: list[tuple[float, int]] = []
         for gi, cid in enumerate(self.col_ids):
             log_sum, count = 0.0, 0
@@ -1326,8 +1327,6 @@ def chart_relative_performance(d: ComparisonData, out: Path):
 
 def chart_cnn_vs_transformer(d: ComparisonData, out: Path):
     """Average normalised CNN vs Transformer throughput & perf/watt."""
-    from math import exp, log
-
     CNN_METRICS = [
         "train_vision_resnet50_bf16_img_per_sec",
         "train_vision_resnet101_bf16_img_per_sec",
@@ -1485,8 +1484,6 @@ def chart_cnn_vs_transformer(d: ComparisonData, out: Path):
 
 def chart_dual_gpu(d: ComparisonData, out: Path):
     """Show 1-GPU vs 2-GPU for real-world workloads."""
-    import matplotlib.colors as mcolors
-
     workload_specs = [
         ("resnet50",  "training",  "ResNet-50 Train"),
         ("resnet50",  "inference", "ResNet-50 Infer"),

@@ -10,6 +10,7 @@ Based on GamersNexus methodology.
 import argparse
 import os
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -67,7 +68,6 @@ def find_llama_cli() -> Path | None:
                 return candidate
 
     # 4. On PATH
-    import shutil
     for binary in binaries:
         found = shutil.which(binary)
         if found:

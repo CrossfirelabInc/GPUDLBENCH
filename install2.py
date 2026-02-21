@@ -24,6 +24,7 @@ import re
 import shutil
 import subprocess
 import sys
+import urllib.request
 from pathlib import Path
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -380,7 +381,6 @@ def install_cuda_toolkit(target_ver: str) -> str | None:
     print(f"  Installing {pkg} from NVIDIA official repo...")
     print(f"  (This can be ~3-5 GB; progress shown below)")
     try:
-        import urllib.request
         deb = "/tmp/cuda-keyring.deb"
         urllib.request.urlretrieve(keyring_url, deb)
         _sudo(["dpkg", "-i", deb])

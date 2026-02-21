@@ -12,6 +12,7 @@ isolates the cost of the mask prediction head.
 """
 
 import argparse
+import logging
 import sys
 import time
 from pathlib import Path
@@ -240,6 +241,10 @@ def main() -> None:
 
     set_reproducibility(args.seed)
     set_tf32(True)
+
+    # Suppress noisy torch._dynamo recompilation warnings from ROI Align —
+    # varying proposal counts trigger recompiles that are harmless but verbose.
+    logging.getLogger("torch._dynamo").setLevel(logging.ERROR)
 
     precisions = args.precisions or TRAINING_PRECISIONS
     precisions = filter_precisions_for_gpu(precisions, args.device)
