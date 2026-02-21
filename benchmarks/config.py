@@ -118,8 +118,8 @@ DETECTION_ITERATIONS: int = 50
 
 # ── GEMM Compute Stress (Benchmark 7) ────────────────────────────────────────
 GEMM_SIZES: list[int] = [1024, 2048, 4096, 8192]
-GEMM_WARMUP: int = 2
-GEMM_REPEATS: int = 5
+GEMM_WARMUP: int = 5
+GEMM_REPEATS: int = 15
 
 # ── GPU Fundamentals (Benchmark 9) ───────────────────────────────────────────
 FUND_BW_SIZES: list[int] = [

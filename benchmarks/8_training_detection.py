@@ -41,6 +41,7 @@ from benchmarks.benchmark_utils import (
     get_detection_batch_sizes,
     get_gpu_info,
     get_grad_scaler,
+    gpu_thermal_warmup,
     GPUMonitor,
     print_gpu_banner,
     save_results,
@@ -113,18 +114,6 @@ _MODEL_REGISTRY: dict = {
 }
 
 
-def _gpu_thermal_warmup(device: torch.device, duration_sec: float = 15) -> None:
-    """Run a heavy matmul loop to bring GPU to stable thermal/clock state."""
-    a = torch.randn(4096, 4096, device=device, dtype=torch.float32)
-    b = torch.randn(4096, 4096, device=device, dtype=torch.float32)
-    end_time = time.perf_counter() + duration_sec
-    while time.perf_counter() < end_time:
-        torch.mm(a, b)
-    torch.cuda.synchronize()
-    del a, b
-    torch.cuda.empty_cache()
-
-
 def benchmark_model(
     model_key: str,
     precision: str,
@@ -140,11 +129,6 @@ def benchmark_model(
     print(f"  Testing: {tag}...", end=" ", flush=True)
 
     try:
-        # Enable deterministic algorithms for reproducibility
-        torch.use_deterministic_algorithms(True, warn_only=True)
-        torch.backends.cudnn.deterministic = True
-        torch.backends.cudnn.benchmark = False
-
         # Always create model in FP32; AMP handles casting.
         # Pass fixed RPN/ROI counts to keep compute constant per iteration.
         model = spec["factory"](
@@ -207,11 +191,6 @@ def benchmark_model(
         throughput = batch_size / avg_time
         print(f"{throughput:.2f} img/s")
 
-        # Restore non-deterministic mode for other benchmarks
-        torch.use_deterministic_algorithms(False)
-        torch.backends.cudnn.deterministic = False
-        torch.backends.cudnn.benchmark = True
-
         del model, optimizer, images, targets, scaler
         torch.cuda.empty_cache()
 
@@ -273,9 +252,7 @@ def main() -> None:
     # ── GPU thermal warmup ─────────────────────────────────────────────
     # Run a dummy matmul workload to bring GPU clocks and temperature to
     # a stable operating point before any measurements.
-    print("Warming up GPU to stabilise clocks/thermals...", flush=True)
-    _gpu_thermal_warmup(device, duration_sec=15)
-    print("GPU warm-up complete.\n")
+    gpu_thermal_warmup(device)
 
     monitor = None
     if not args.no_monitor:

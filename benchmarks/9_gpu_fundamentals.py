@@ -39,6 +39,7 @@ from benchmarks.benchmark_utils import (
     check_cuda_available,
     cuda_sync,
     get_gpu_info,
+    gpu_thermal_warmup,
     median_time,
     print_gpu_banner,
     save_results,
@@ -405,6 +406,9 @@ def main() -> None:
     gpu_info = get_gpu_info(args.device)
     print_gpu_banner(gpu_info)
     set_reproducibility(args.seed)
+
+    # Stabilise GPU clocks/thermals before any timed measurements
+    gpu_thermal_warmup(device)
 
     all_rows: list[dict] = []
 

@@ -26,6 +26,7 @@ from benchmarks.benchmark_utils import (
     check_cuda_available,
     cuda_sync,
     get_gpu_info,
+    gpu_thermal_warmup,
     median_time,
     print_gpu_banner,
     save_results,
@@ -158,6 +159,9 @@ def main() -> None:
     print(f"\nMatrix sizes : {sizes}")
     print(f"Precisions   : {[p[0] for p in precisions]}")
     print(f"Warmup / runs: {GEMM_WARMUP} / {GEMM_REPEATS}")
+
+    # Stabilise GPU clocks/thermals before any timed measurements
+    gpu_thermal_warmup(device)
 
     all_rows: list[dict] = []
     peak: dict[str, float] = {}

@@ -147,17 +147,42 @@ def print_gpu_banner(info: dict) -> None:
 
 # ── Reproducibility ───────────────────────────────────────────────────────────
 
-def set_reproducibility(seed: int = RANDOM_SEED, deterministic: bool = False) -> None:
-    """Set seeds for torch, numpy, and random."""
+def set_reproducibility(seed: int = RANDOM_SEED) -> None:
+    """Set seeds and enable deterministic execution for reproducible benchmarks.
+
+    Forces cuDNN to use deterministic (non-autotuned) algorithms so that
+    repeated runs on the same GPU produce consistent throughput numbers.
+    """
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
-    if deterministic:
-        torch.backends.cudnn.deterministic = True
-        torch.backends.cudnn.benchmark = False
-    else:
-        torch.backends.cudnn.benchmark = True
+    # Deterministic cuDNN: removes algorithm-selection variance across runs.
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    # Ensure deterministic algorithms for all ops where possible.
+    torch.use_deterministic_algorithms(True, warn_only=True)
+
+
+# ── GPU thermal warmup ────────────────────────────────────────────────────────
+
+def gpu_thermal_warmup(device: torch.device, duration_sec: float = 15) -> None:
+    """Run a heavy matmul loop to bring GPU to a stable thermal / clock state.
+
+    Modern GPUs start at a low power state and ramp up to boost clocks once a
+    sustained workload is detected.  Running this before any timed measurements
+    eliminates the variance caused by cold-start clock frequencies.
+    """
+    logger.info("Warming up GPU to stabilise clocks/thermals (%ds)...", int(duration_sec))
+    a = torch.randn(4096, 4096, device=device, dtype=torch.float32)
+    b = torch.randn(4096, 4096, device=device, dtype=torch.float32)
+    end_time = time.perf_counter() + duration_sec
+    while time.perf_counter() < end_time:
+        torch.mm(a, b)
+    torch.cuda.synchronize()
+    del a, b
+    torch.cuda.empty_cache()
+    logger.info("GPU warm-up complete.")
 
 
 # ── Batch-size selection ──────────────────────────────────────────────────────

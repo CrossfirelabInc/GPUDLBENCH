@@ -34,6 +34,7 @@ from benchmarks.benchmark_utils import (
     add_common_args,
     check_cuda_available,
     get_gpu_info,
+    gpu_thermal_warmup,
     print_gpu_banner,
     save_results,
     set_reproducibility,
@@ -96,13 +97,15 @@ def _bench_training(
     model.train()
     optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4)
 
+    # Pre-generate fixed inputs to avoid random-generation overhead in timed loop
+    inputs = make_inputs_fn(total_batch, primary)
+
     print(f"  [{n_gpu} GPU{'s' if n_gpu > 1 else ''}]  {model_name} TRAINING  "
           f"batch={total_batch} ({batch_per_gpu}/GPU)...", end=" ", flush=True)
 
     # Warmup
     for _ in range(warmup):
         optimizer.zero_grad(set_to_none=True)
-        inputs = make_inputs_fn(total_batch, primary)
         loss = compute_loss_fn(model, inputs)
         loss.backward()
         optimizer.step()
@@ -114,7 +117,6 @@ def _bench_training(
         _sync_all(device_ids)
         t0 = time.perf_counter()
         optimizer.zero_grad(set_to_none=True)
-        inputs = make_inputs_fn(total_batch, primary)
         loss = compute_loss_fn(model, inputs)
         loss.backward()
         optimizer.step()
@@ -150,18 +152,19 @@ def _bench_inference(
         model = nn.DataParallel(model, device_ids=device_ids)
     model.eval()
 
+    # Pre-generate fixed inputs to avoid random-generation overhead in timed loop
+    inputs = make_inputs_fn(total_batch, primary)
+
     print(f"  [{n_gpu} GPU{'s' if n_gpu > 1 else ''}]  {model_name} INFERENCE "
           f"batch={total_batch} ({batch_per_gpu}/GPU)...", end=" ", flush=True)
 
     with torch.no_grad():
         for _ in range(warmup):
-            inputs = make_inputs_fn(total_batch, primary)
             model(**inputs) if isinstance(inputs, dict) else model(inputs)
         _sync_all(device_ids)
 
         times: list[float] = []
         for _ in range(iterations):
-            inputs = make_inputs_fn(total_batch, primary)
             _sync_all(device_ids)
             t0 = time.perf_counter()
             model(**inputs) if isinstance(inputs, dict) else model(inputs)
@@ -224,6 +227,9 @@ def main() -> None:
     set_tf32(True)
 
     print(f"\nAvailable GPUs: {n_gpus_available}")
+
+    # Stabilise GPU clocks/thermals before any timed measurements
+    gpu_thermal_warmup(torch.device(f"cuda:{args.device}"))
 
     # Check whether all GPUs are identical (same model name and VRAM)
     gpus_identical = True

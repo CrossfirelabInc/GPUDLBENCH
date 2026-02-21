@@ -34,6 +34,7 @@ from benchmarks.benchmark_utils import (
     get_gpu_info,
     get_grad_scaler,
     get_nlp_train_batch_sizes,
+    gpu_thermal_warmup,
     GPUMonitor,
     print_gpu_banner,
     save_results,
@@ -177,6 +178,9 @@ def main() -> None:
     print(f"Precisions: {precisions}")
     print(f"Sequence Length: {NLP_SEQ_LENGTH}")
     print()
+
+    # Stabilise GPU clocks/thermals before any timed measurements
+    gpu_thermal_warmup(device)
 
     monitor = None
     if not args.no_monitor:
