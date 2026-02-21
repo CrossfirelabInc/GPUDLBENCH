@@ -162,6 +162,12 @@ def set_reproducibility(seed: int = RANDOM_SEED) -> None:
     torch.backends.cudnn.benchmark = False
     # Ensure deterministic algorithms for all ops where possible.
     torch.use_deterministic_algorithms(True, warn_only=True)
+    # Disable non-deterministic SDPA backends (Flash / MemEfficient).
+    # Their backward passes have no deterministic implementation, which
+    # triggers warnings and adds run-to-run variance in NLP benchmarks.
+    # The math backend is fully deterministic.
+    torch.backends.cuda.enable_flash_sdp(False)
+    torch.backends.cuda.enable_mem_efficient_sdp(False)
 
 
 # ── GPU thermal warmup ────────────────────────────────────────────────────────
