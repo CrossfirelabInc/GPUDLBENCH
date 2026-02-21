@@ -157,6 +157,9 @@ def set_reproducibility(seed: int = RANDOM_SEED) -> None:
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
+    # Deterministic cuBLAS: required for reproducible matmul/GEMM results.
+    # Without this, cuBLAS may pick different internal algorithms per call.
+    os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
     # Deterministic cuDNN: removes algorithm-selection variance across runs.
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
