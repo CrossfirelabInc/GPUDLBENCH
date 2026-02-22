@@ -1,8 +1,8 @@
 # GPU Deep Learning Benchmark Suite
 
-Vide Coded by Crossfirelab
+Vibe Coded by Crossfirelab
 
-Crossfirelab Benchmark suite for NVIDIA GPUs. Measures training, inference, LLM generation, VRAM limits, compute stress, and multi-GPU scaling. PyTorch + llama.cpp. No Docker required.
+Crossfirelab Benchmark suite for NVIDIA GPUs specially for Deep Learning. Measures training, inference, LLM generation, VRAM limits, compute stress, and multi-GPU scaling. PyTorch + llama.cpp. No Docker required.
 
 Benchmarks:
 1. Vision Training - ResNet-50/101 throughput (FP32/FP16/BF16/FP8)
