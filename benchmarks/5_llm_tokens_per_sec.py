@@ -4,7 +4,6 @@ Benchmark 5 — LLM Token Generation (llama.cpp)
 
 Measures tokens/second and time-to-first-token for GGUF models.
 Models must be pre-downloaded via install.py.
-Based on GamersNexus methodology.
 """
 
 import argparse
@@ -228,7 +227,6 @@ def main() -> None:
 
     print("=" * 70)
     print("LLM Token Generation Benchmark")
-    print("GamersNexus Methodology")
     print("=" * 70)
     print()
 
