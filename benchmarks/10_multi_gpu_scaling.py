@@ -232,22 +232,14 @@ def main() -> None:
     if not args.skip_thermal_warmup:
         gpu_thermal_warmup(torch.device(f"cuda:{args.device}"))
 
-    # Check whether all GPUs are identical (same model name; VRAM within 2%)
+    # Check whether all GPUs are the same model
     gpus_identical = True
     if n_gpus_available >= 2:
         gpu_names = [torch.cuda.get_device_name(i) for i in range(n_gpus_available)]
-        gpu_vrams = [
-            torch.cuda.get_device_properties(i).total_memory
-            for i in range(n_gpus_available)
-        ]
         for i in range(n_gpus_available):
-            print(f"  GPU {i}: {gpu_names[i]}  "
-                  f"({gpu_vrams[i] / 1024**3:.1f} GiB)")
-        # Compare model names; for VRAM allow up to 2% variance (driver/firmware
-        # reservations can differ slightly between identical cards)
-        vram_min, vram_max = min(gpu_vrams), max(gpu_vrams)
-        vram_match = (vram_max - vram_min) / vram_max < 0.02 if vram_max else True
-        if len(set(gpu_names)) != 1 or not vram_match:
+            vram = torch.cuda.get_device_properties(i).total_memory / 1024**3
+            print(f"  GPU {i}: {gpu_names[i]}  ({vram:.1f} GiB)")
+        if len(set(gpu_names)) != 1:
             gpus_identical = False
             print("\n  WARNING: GPUs are NOT identical — multi-GPU scaling "
                   "tests will be skipped.")
