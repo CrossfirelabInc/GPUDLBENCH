@@ -101,7 +101,10 @@ def _build_bert_base() -> nn.Module:
 
 def _build_gpt2() -> nn.Module:
     cfg = GPT2Config(**MULTIGPU_LLM_CONFIG)
-    return GPT2LMHeadModel(cfg)  # FP32; AMP autocast handles FP16 compute
+    model = GPT2LMHeadModel(cfg)  # FP32; AMP autocast handles FP16 compute
+    # Ensure loss_type is set so the forward pass doesn't warn about None
+    model.config.loss_type = "ForCausalLMLoss"
+    return model
 
 
 # ──────────────────────────── micro-step functions ────────────────────────────
