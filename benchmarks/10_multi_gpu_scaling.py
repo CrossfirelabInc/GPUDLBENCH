@@ -30,6 +30,7 @@ import os
 import socket
 import sys
 import time
+import warnings
 from pathlib import Path
 
 import torch
@@ -101,7 +102,12 @@ def _build_bert_base() -> nn.Module:
 
 def _build_gpt2() -> nn.Module:
     cfg = GPT2Config(**MULTIGPU_LLM_CONFIG)
-    return GPT2LMHeadModel(cfg)  # FP32; AMP autocast handles FP16 compute
+    # Prevent "loss_type=None" warning in transformers >= 4.x
+    if getattr(cfg, "loss_type", "MISSING") is None:
+        cfg.loss_type = "ForCausalLMLoss"
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", message=".*loss_type.*")
+        return GPT2LMHeadModel(cfg)  # FP32; AMP autocast handles FP16 compute
 
 
 # ──────────────────────────── micro-step functions ────────────────────────────
@@ -182,6 +188,7 @@ def _ddp_train_worker(rank, world_size, port, model_key, batch_per_gpu,
     model = _MODEL_BUILDERS[model_key]().to(rank)
     model = DDP(model, device_ids=[rank],
                 gradient_as_bucket_view=True,
+                static_graph=True,
                 bucket_cap_mb=100)
     model.train()
     optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4)
@@ -260,6 +267,7 @@ def _fsdp_train_worker(rank, world_size, port, model_key, batch_per_gpu,
     model = FSDP(model,
                  sharding_strategy=ShardingStrategy.SHARD_GRAD_OP,
                  auto_wrap_policy=_get_wrap_policy(model_key),
+                 forward_prefetch=True,
                  device_id=rank,
                  use_orig_params=True)
     model.train()

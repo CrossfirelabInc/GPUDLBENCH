@@ -152,13 +152,13 @@ FUND_REPEATS: int = 20
 
 # ── Multi-GPU Scaling (Benchmark 10) ─────────────────────────────────────────
 MULTIGPU_VISION_BATCH_PER_GPU: int = 32
-MULTIGPU_NLP_BATCH_PER_GPU: int = 16
-MULTIGPU_LLM_BATCH_PER_GPU: int = 4
+MULTIGPU_NLP_BATCH_PER_GPU: int = 32
+MULTIGPU_LLM_BATCH_PER_GPU: int = 8
 MULTIGPU_LLM_SEQ_LENGTH: int = 256
 MULTIGPU_LLM_GEN_TOKENS: int = 64
 MULTIGPU_WARMUP: int = 5
 MULTIGPU_ITERATIONS: int = 50
-MULTIGPU_GRAD_ACCUM_STEPS: int = 4   # gradient accumulation steps (improves PCIe scaling)
+MULTIGPU_GRAD_ACCUM_STEPS: int = 8   # gradient accumulation steps (improves PCIe scaling)
 
 # GPT-2 Large architecture (nanoGPT-style)
 # ~774M parameters — good compute-to-communication ratio for multi-GPU scaling.
