@@ -213,14 +213,84 @@ def main():
 
     check_gpu()
 
-    # ── GPU thermal warmup before all benchmarks ─────────────────
-    # Bring all GPUs to a stable thermal/clock state once, then skip
-    # per-benchmark warmups to save time and reduce variance.
+    # ── Multi-GPU setup: pick non-display GPU & equalise power limits ──
     n_gpus = torch.cuda.device_count()
+    bench_device = 0  # default: GPU 0 for single-GPU benchmarks 1-9
+    original_power_limits: dict[int, float] = {}  # gpu_idx -> original W
+
+    if n_gpus >= 2:
+        # --- Detect which GPU is driving the display ---
+        display_gpu = None
+        try:
+            r = subprocess.run(
+                ["nvidia-smi",
+                 "--query-gpu=index,display_active",
+                 "--format=csv,noheader,nounits"],
+                capture_output=True, text=True, timeout=5,
+            )
+            if r.returncode == 0:
+                for line in r.stdout.strip().splitlines():
+                    parts = [p.strip() for p in line.split(",")]
+                    if len(parts) == 2 and parts[1].lower().startswith("enabled"):
+                        display_gpu = int(parts[0])
+                        break
+        except Exception:
+            pass
+
+        if display_gpu is not None:
+            # Use the GPU that is NOT rendering the screen
+            bench_device = 1 if display_gpu == 0 else 0
+            print(f"Multi-GPU detected: GPU {display_gpu} is driving the display")
+            print(f"  → Using GPU {bench_device} for single-GPU benchmarks 1-9\n")
+        else:
+            print("Multi-GPU detected: could not determine display GPU "
+                  "— defaulting to GPU 0\n")
+
+        # --- Equalise power limits across GPUs ---
+        try:
+            r = subprocess.run(
+                ["nvidia-smi",
+                 "--query-gpu=index,power.limit,power.default_limit",
+                 "--format=csv,noheader,nounits"],
+                capture_output=True, text=True, timeout=5,
+            )
+            if r.returncode == 0:
+                limits: list[tuple[int, float, float]] = []
+                for line in r.stdout.strip().splitlines():
+                    parts = [p.strip() for p in line.split(",")]
+                    if len(parts) >= 2:
+                        idx = int(parts[0])
+                        cur = float(parts[1])
+                        limits.append((idx, cur, cur))
+                        original_power_limits[idx] = cur
+
+                if len(limits) >= 2:
+                    min_limit = min(l[1] for l in limits)
+                    needs_change = any(l[1] != min_limit for l in limits)
+                    if needs_change:
+                        print(f"Power limits: {', '.join(f'GPU {l[0]}={l[1]:.0f}W' for l in limits)}")
+                        print(f"  → Equalising all GPUs to {min_limit:.0f}W "
+                              f"for fair comparison")
+                        for idx, cur, _ in limits:
+                            if cur != min_limit:
+                                subprocess.run(
+                                    ["nvidia-smi", "-i", str(idx),
+                                     "-pl", str(min_limit)],
+                                    capture_output=True, timeout=5,
+                                )
+                        print(f"  Power limits set to {min_limit:.0f}W.\n")
+                    else:
+                        print(f"Power limits already equal: {limits[0][1]:.0f}W\n")
+        except Exception as e:
+            print(f"  NOTE: Could not equalise power limits: {e}\n")
+
+    # ── GPU thermal warmup before all benchmarks ─────────────────
+    # Warm up only the bench GPU for tests 1-9; bench 10 does its
+    # own parallel warmup for all GPUs right before it runs.
     if args.skip_thermal_warmup:
         print(f"Skipping GPU thermal warmup (--skip-thermal-warmup).\n")
     else:
-        print(f"Warming up {n_gpus} GPU(s) to stabilise clocks/thermals (60s)...")
+        print(f"Warming up GPU {bench_device} to stabilise clocks/thermals (60s)...")
 
         def _warmup_gpu(dev_id: int) -> None:
             dev = torch.device(f"cuda:{dev_id}")
@@ -232,18 +302,10 @@ def main():
             torch.cuda.synchronize(dev)
             del a, b
 
-        import threading as _th
-        if n_gpus > 1:
-            threads = [_th.Thread(target=_warmup_gpu, args=(i,)) for i in range(n_gpus)]
-            for t in threads:
-                t.start()
-            for t in threads:
-                t.join()
-        else:
-            _warmup_gpu(0)
+        _warmup_gpu(bench_device)
 
         torch.cuda.empty_cache()
-        print(f"GPU warm-up complete ({n_gpus} device(s)).\n")
+        print(f"GPU warm-up complete (GPU {bench_device}).\n")
 
     total = len(BENCHMARKS)
     passed = 0
@@ -261,6 +323,9 @@ def main():
 
         # Pass --model-set to the LLM benchmark (benchmark 5)
         extra = ["--skip-thermal-warmup"]
+        # For single-GPU benchmarks (1-9), use the non-display GPU
+        if num != 10 and bench_device != 0:
+            extra.extend(["--device", str(bench_device)])
         if num == 5:
             extra.extend(["--model-set", args.model_set])
         if args.demo:
@@ -323,6 +388,20 @@ def main():
     print(f"Results are in {session_dir}/")
     print(f"  cat {session_dir}/benchmark_summary.md")
     print(f"  (also available via: results/latest/benchmark_summary.md)")
+
+    # ── Restore original power limits if they were changed ─────────
+    if original_power_limits:
+        try:
+            for idx, orig_w in original_power_limits.items():
+                subprocess.run(
+                    ["nvidia-smi", "-i", str(idx),
+                     "-pl", str(orig_w)],
+                    capture_output=True, timeout=5,
+                )
+            print("Power limits restored to original values: "
+                  f"{', '.join(f'GPU {i}={w:.0f}W' for i, w in original_power_limits.items())}")
+        except Exception:
+            print("  NOTE: Could not restore original power limits")
 
     # Close the console log file
     sys.stdout = sys.__stdout__
