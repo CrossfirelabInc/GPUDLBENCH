@@ -124,9 +124,9 @@ _STRINGS: dict[str, dict[str, str]] = {
         "detect_title":             "Nesne Algılama Eğitimi",
         "detect_subtitle":          "Faster R-CNN / Mask R-CNN",
         "detect_ylabel":            "Görüntü / sn",
-        # — Batch-Normalized
-        "batch_norm_suffix":        "(Batch-Normalized)",
-        "batch_norm_ylabel":        "İterasyon / sn",
+        # — Same Batch Size comparison
+        "batch_norm_suffix":        "(Aynı Batch Boyutu)",
+        "batch_norm_ylabel":        "Örnek / sn",
         # — Scorecard
         "score_title":              "GPU Karşılaştırma Kartı",
         "score_best":               "\u2605 EN İYİ",
@@ -234,9 +234,9 @@ _STRINGS: dict[str, dict[str, str]] = {
         "detect_title":             "Object Detection Training",
         "detect_subtitle":          "Faster R-CNN / Mask R-CNN",
         "detect_ylabel":            "Images / sec",
-        # — Batch-Normalized
-        "batch_norm_suffix":        "(Batch-Normalized)",
-        "batch_norm_ylabel":        "Iterations / sec",
+        # — Same Batch Size comparison
+        "batch_norm_suffix":        "(Same Batch Size)",
+        "batch_norm_ylabel":        "Samples / sec",
         # — Scorecard
         "score_title":              "GPU Scorecard",
         "score_best":               "\u2605 BEST",
@@ -352,6 +352,11 @@ def extract_training_vision(data: dict) -> Metricdict:
                 if bs is not None:
                     out[f"train_vision_{model}_{prec.lower()}_best_bs"] = bs
                     out[f"train_vision_{model}_{prec.lower()}_norm_iter_per_sec"] = _safe(v / bs)
+            # Store per-batch-size throughputs for same-BS comparison
+            for r in rows:
+                if filt(r) and r.get("throughput_img_per_sec") is not None and r.get("batch_size") is not None:
+                    bsz = int(r["batch_size"])
+                    out[f"train_vision_{model}_{prec.lower()}_bs{bsz}_img_per_sec"] = _safe(r["throughput_img_per_sec"])
     return out
 
 
@@ -369,6 +374,11 @@ def extract_training_nlp(data: dict) -> Metricdict:
                 if bs is not None:
                     out[f"train_nlp_{model}_{prec.lower()}_best_bs"] = bs
                     out[f"train_nlp_{model}_{prec.lower()}_norm_iter_per_sec"] = _safe(v / bs)
+            # Store per-batch-size throughputs for same-BS comparison
+            for r in rows:
+                if filt(r) and r.get("throughput_samples_per_sec") is not None and r.get("batch_size") is not None:
+                    bsz = int(r["batch_size"])
+                    out[f"train_nlp_{model}_{prec.lower()}_bs{bsz}_samples_per_sec"] = _safe(r["throughput_samples_per_sec"])
     return out
 
 
@@ -490,6 +500,11 @@ def extract_training_detection(data: dict) -> Metricdict:
                 if bs is not None:
                     out[f"detect_{safe_model}_{prec.lower()}_best_bs"] = bs
                     out[f"detect_{safe_model}_{prec.lower()}_norm_iter_per_sec"] = _safe(v / bs)
+            # Store per-batch-size throughputs for same-BS comparison
+            for r in rows:
+                if filt(r) and r.get("throughput_img_per_sec") is not None and r.get("batch_size") is not None:
+                    bsz = int(r["batch_size"])
+                    out[f"detect_{safe_model}_{prec.lower()}_bs{bsz}_img_per_sec"] = _safe(r["throughput_img_per_sec"])
     return out
 
 
@@ -1211,24 +1226,61 @@ def _batch_norm_chart(d: ComparisonData, out: Path,
                       metric_prefix: str,
                       bs_prefix: str,
                       title_key: str, subtitle_key: str,
-                      filename: str):
-    """Chart showing throughput / batch_size (iterations per second).
+                      filename: str,
+                      tput_suffix: str = "_img_per_sec"):
+    """Chart comparing GPUs at the same (smallest common) batch size.
 
-    This removes the VRAM advantage: a GPU with more VRAM can use a larger
-    batch but each iteration is heavier.  Dividing throughput by batch size
-    yields pure per-iteration speed — a fair comparison of raw compute.
+    For each model/precision combo, finds the smallest batch size that ALL
+    GPUs ran, then shows raw throughput at that batch size.  This removes
+    the VRAM advantage — a GPU with more VRAM can use larger batches, but
+    here we compare pure compute speed at an equal workload.
     """
+    import re as _re
+
     cats: list[str] = []
     val_keys: list[str] = []
-    bs_keys: list[str] = []
+    chosen_bs: list[int] = []
 
     for model in models:
         for prec in precisions:
-            norm_key = f"{metric_prefix}{model}_{prec}_norm_iter_per_sec"
-            bs_key = f"{bs_prefix}{model}_{prec}_best_bs"
-            norm_vals = d.get(norm_key)
-            if not any(v is not None for v in norm_vals):
+            # Find all per-batch-size metric keys for this model/prec
+            pattern = f"{metric_prefix}{model}_{prec}_bs"
+            bs_metrics = sorted(d.find_metrics(pattern))
+            if not bs_metrics:
                 continue
+
+            # Extract available batch sizes per GPU
+            # Key format: prefix_model_prec_bs{N}_throughput_suffix
+            bs_to_key: dict[int, str] = {}
+            for mk in bs_metrics:
+                m = _re.search(r"_bs(\d+)" + _re.escape(tput_suffix) + r"$", mk)
+                if m:
+                    bs_to_key[int(m.group(1))] = mk
+
+            if not bs_to_key:
+                continue
+
+            # Find smallest batch size where ALL GPUs have data
+            common_bs = None
+            for bs_val in sorted(bs_to_key.keys()):
+                key = bs_to_key[bs_val]
+                vals_at_bs = d.get(key)
+                if all(v is not None for v in vals_at_bs):
+                    common_bs = bs_val
+                    break
+
+            if common_bs is None:
+                # Fallback: use smallest BS with at least some data
+                for bs_val in sorted(bs_to_key.keys()):
+                    key = bs_to_key[bs_val]
+                    vals_at_bs = d.get(key)
+                    if any(v is not None for v in vals_at_bs):
+                        common_bs = bs_val
+                        break
+
+            if common_bs is None:
+                continue
+
             nice_model = model.replace("_", "-").upper() if "_" not in model else \
                          model.replace("faster_rcnn_resnet50", "Faster R-CNN") \
                               .replace("mask_rcnn_resnet50", "Mask R-CNN") \
@@ -1236,23 +1288,22 @@ def _batch_norm_chart(d: ComparisonData, out: Path,
             if nice_model == model:
                 nice_model = model.upper()
             cats.append(f"{nice_model} {prec.upper()}")
-            val_keys.append(norm_key)
-            bs_keys.append(bs_key)
+            val_keys.append(bs_to_key[common_bs])
+            chosen_bs.append(common_bs)
 
     if not cats:
         return
 
     vals = [[d.get(m)[gi] for m in val_keys] for gi in range(d.n_gpus)]
 
-    # Build annotations showing best BS used
+    # Build annotations showing the common BS used
     anns: list[list[str]] = []
     for gi in range(d.n_gpus):
         row: list[str] = []
-        for ci, bk in enumerate(bs_keys):
+        for ci in range(len(cats)):
             v = vals[gi][ci]
-            bs_val = d.get(bk)[gi]
-            if v is not None and bs_val is not None:
-                row.append(f"BS={int(bs_val)}")
+            if v is not None:
+                row.append(f"BS={chosen_bs[ci]}")
             else:
                 row.append("")
         anns.append(row)
@@ -1262,7 +1313,7 @@ def _batch_norm_chart(d: ComparisonData, out: Path,
                             ACCENT_BLUE, d.n_gpus, len(cats),
                             height_ratio=max(1.0, len(cats) * 0.18))
     _horizontal_grouped_bar(ax, cats, d.gpu_names(), vals, S("batch_norm_ylabel"),
-                 S(subtitle_key), fmt="{:.2f}", annotations_per_gpu=anns)
+                 S(subtitle_key), fmt="{:.1f}", annotations_per_gpu=anns)
     fig.tight_layout(rect=[0, 0.02, 1, 0.92])
     _save(fig, out / filename)
 
@@ -1275,7 +1326,8 @@ def chart_training_vision_batch_norm(d: ComparisonData, out: Path):
                       bs_prefix="train_vision_",
                       title_key="train_vision_title",
                       subtitle_key="train_vision_subtitle",
-                      filename="cmp_training_vision_batch_norm.png")
+                      filename="cmp_training_vision_batch_norm.png",
+                      tput_suffix="_img_per_sec")
 
 
 def chart_training_nlp_batch_norm(d: ComparisonData, out: Path):
@@ -1286,7 +1338,8 @@ def chart_training_nlp_batch_norm(d: ComparisonData, out: Path):
                       bs_prefix="train_nlp_",
                       title_key="train_nlp_title",
                       subtitle_key="train_nlp_subtitle",
-                      filename="cmp_training_nlp_batch_norm.png")
+                      filename="cmp_training_nlp_batch_norm.png",
+                      tput_suffix="_samples_per_sec")
 
 
 def chart_detection_batch_norm(d: ComparisonData, out: Path):
@@ -1297,7 +1350,8 @@ def chart_detection_batch_norm(d: ComparisonData, out: Path):
                       bs_prefix="detect_",
                       title_key="detect_title",
                       subtitle_key="detect_subtitle",
-                      filename="cmp_detection_batch_norm.png")
+                      filename="cmp_detection_batch_norm.png",
+                      tput_suffix="_img_per_sec")
 
 
 # ── Power Efficiency Charts ──────────────────────────────────────────────────

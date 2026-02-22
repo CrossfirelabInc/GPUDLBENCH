@@ -13,7 +13,7 @@ Fotoğraf sınıflandırma modelleri (ResNet-50 ve ResNet-101) GPU üzerinde eğ
 - Kendi fotoğraf sınıflandırma modelinizi (örneğin kedi/köpek ayırma, tıbbi görüntü analizi, ürün tanıma) eğitmek istiyorsanız, bu test GPU'nuzun bu işi ne kadar hızlı yapacağını gösterir.
 - Yüksek sonuç = daha kısa eğitim süresi. Örneğin 500 img/s ile 1000 img/s arasındaki fark, 10 saatlik bir eğitimi 5 saate düşürmek demektir.
 - FP16/BF16 sonuçları, "mixed precision" eğitim ile ne kadar hız kazandığınızı gösterir — modern GPU'larda bu **2-3 kat** hız farkı yaratabilir.
-- Karşılaştırma grafiklerinde her GPU'nun **en yüksek throughput'u** ve **batch-normalized** (throughput / batch boyutu = iterasyon/sn) performansı ayrı ayrı gösterilir.
+- Karşılaştırma grafiklerinde her GPU'nun **en yüksek throughput'u** ve **aynı batch boyutu** karşılaştırması ayrı ayrı gösterilir.
 
 ---
 
@@ -27,7 +27,7 @@ Doğal dil işleme (NLP) modelleri olan BERT-base ve BERT-large, GPU üzerinde e
 - Duygu analizi, metin sınıflandırma, soru-cevap sistemi gibi projeler bu tür eğitim kullanır.
 - BERT-large, BERT-base'den **3 kat** daha büyük — büyük modellerde GPU farkı daha belirgin olur.
 - Araştırmacılar ve şirketler bu sonuçlara bakarak GPU yatırım kararı verir.
-- Karşılaştırma grafiklerinde **maksimum verim** ve **batch-normalized** (iterasyon/sn) grafikleri ayrı sunulur.
+- Karşılaştırma grafiklerinde **maksimum verim** ve **aynı batch boyutu** grafikleri ayrı sunulur.
 
 ---
 
@@ -110,7 +110,7 @@ Fotoğraftaki nesneleri tespit eden ve konumlarını belirleyen modeller (Faster
 - Güvenlik: kamera görüntülerinde şüpheli nesne/kişi algılama.
 - Perakende: raf analizi, müşteri sayma.
 - **ResNet sınıflandırmasından çok daha ağır bir iş yükü** — GPU belleği ve hesaplama gücü aynı anda test edilir.
-- Karşılaştırmada **maksimum verim** ve **batch-normalized** (iterasyon/sn) grafikleri ayrı sunulur.
+- Karşılaştırmada **maksimum verim** ve **aynı batch boyutu** grafikleri ayrı sunulur.
 
 ---
 
@@ -169,7 +169,7 @@ Microsoft DeepSpeed ZeRO Stage-2'nin PyTorch-native karşılığıdır. DDP'den 
 
 ---
 
-## Karşılaştırma Grafikleri: Maksimum Verim ve Batch-Normalized
+## Karşılaştırma Grafikleri: Maksimum Verim ve Aynı Batch Boyutu
 
 Benchmark testleri 1-4 ve 8 (görüntü/NLP eğitim, çıkarım ve nesne algılama) birden fazla batch boyutunda çalışır. Her GPU, destekleyebildiği en büyük batch boyutuna kadar otomatik olarak ölçeklenir. Bu nedenle farklı VRAM kapasitesine sahip GPU'lar farklı batch boyutlarına ulaşabilir.
 
@@ -181,16 +181,16 @@ Karşılaştırma grafiklerinde bu durum **iki ayrı grafik türü** ile göster
 - **Soru:** "Bu GPU pratikte en iyi performansını hangi batch boyutunda veriyor?"
 - Eğitim ve çıkarım testlerinin tamamı için mevcuttur.
 
-### Batch-Normalized (İterasyon / sn)
-- Eğitim testleri için throughput değeri batch boyutuna bölünerek **iterasyon/saniye** hesaplanır.
-- Formül: `iterasyon/sn = throughput / batch_size`
-- Bu metrik, VRAM avantajını devre dışı bırakır: büyük batch boyutu kullanan GPU daha yüksek throughput gösterebilir, ancak her iterasyonu daha ağırdır.
-- **Soru:** "Bu GPU tek bir eğitim adımını ne kadar hızlı tamamlıyor?"
+### Aynı Batch Boyutu (Same Batch Size)
+- Tüm GPU'ların çalıştırabildiği **en küçük ortak batch boyutu** seçilir ve tüm GPU'ların o batch boyutundaki throughput'ları karşılaştırılır.
+- Bu sayede VRAM avantajı tamamen devre dışı kalır: her GPU aynı iş yükünü işler.
+- Grafik etiketlerinde `BS=16` gibi açıklamalar yer alır — karşılaştırmanın hangi batch boyutunda yapıldığı görülür.
+- **Soru:** "Aynı iş yükünde hangi GPU daha hızlı?"
 - Saf hesaplama gücü karşılaştırması için idealdir.
 
 > **Hangisine bakmalı?**
 > - Gerçek dünya performansı için → **Maksimum Verim** grafiği (pratikte her GPU en uygun batch boyutunda çalışır)
-> - Saf GPU hesaplama gücü için → **Batch-Normalized** grafiği (VRAM avantajı normalize edilmiş)
+> - Saf GPU hesaplama gücü için → **Aynı Batch Boyutu** grafiği (VRAM avantajı devre dışı, eşit iş yükü)
 
 ---
 
