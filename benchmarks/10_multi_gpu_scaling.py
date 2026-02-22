@@ -100,7 +100,7 @@ def _build_bert_base() -> nn.Module:
 
 def _build_llama() -> nn.Module:
     cfg = LlamaConfig(**MULTIGPU_LLM_CONFIG)
-    return LlamaForCausalLM(cfg).half()  # FP16 to fit in VRAM
+    return LlamaForCausalLM(cfg)  # FP32 weights; AMP autocast handles FP16 compute
 
 
 # ──────────────────────────── micro-step functions ────────────────────────────
@@ -166,7 +166,6 @@ def _ddp_train_worker(rank, world_size, port, model_key, batch_per_gpu,
 
     Additional DDP flags:
       • gradient_as_bucket_view — avoids gradient-to-bucket copy
-      • static_graph           — graph is fixed, enables comm optimisations
       • bucket_cap_mb=100      — fewer, larger allreduce calls (good for PCIe)
     """
     os.environ["MASTER_ADDR"] = "127.0.0.1"
@@ -185,7 +184,6 @@ def _ddp_train_worker(rank, world_size, port, model_key, batch_per_gpu,
     model = _MODEL_BUILDERS[model_key]().to(rank)
     model = DDP(model, device_ids=[rank],
                 gradient_as_bucket_view=True,
-                static_graph=True,
                 bucket_cap_mb=100)
     model.train()
     optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4)
@@ -202,25 +200,26 @@ def _ddp_train_worker(rank, world_size, port, model_key, batch_per_gpu,
                 micro_fn(model, batch_per_gpu, rank)  # allreduce here
         optimizer.step()
 
-    # Warmup
-    for _ in range(warmup):
-        _one_iter()
+    try:
+        # Warmup
+        for _ in range(warmup):
+            _one_iter()
 
-    torch.cuda.synchronize(rank)
-    dist.barrier()
+        torch.cuda.synchronize(rank)
+        dist.barrier()
 
-    # Timed benchmark
-    t0 = time.perf_counter()
-    for _ in range(iterations):
-        _one_iter()
-    torch.cuda.synchronize(rank)
-    dist.barrier()
-    elapsed = time.perf_counter() - t0
+        # Timed benchmark
+        t0 = time.perf_counter()
+        for _ in range(iterations):
+            _one_iter()
+        torch.cuda.synchronize(rank)
+        dist.barrier()
+        elapsed = time.perf_counter() - t0
 
-    if rank == 0:
-        result_dict["elapsed"] = elapsed
-
-    dist.destroy_process_group()
+        if rank == 0:
+            result_dict["elapsed"] = elapsed
+    finally:
+        dist.destroy_process_group()
 
 
 # ──────────────────────────── training benchmarks ─────────────────────────────
@@ -509,7 +508,9 @@ def main() -> None:
                 })
             except Exception as e:
                 torch.cuda.empty_cache()
-                short = str(e).split("\n")[0][:120]
+                # mp.spawn wraps errors; use repr() for non-empty message
+                msg = str(e) or repr(e)
+                short = msg.strip().split("\n")[0][:200]
                 print(f"ERROR: {short}")
                 all_rows.append({
                     "model": key, "mode": "training", "n_gpus": n_gpu,
