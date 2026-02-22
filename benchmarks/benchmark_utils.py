@@ -458,5 +458,5 @@ def add_common_args(parser) -> None:
                         help="Precision modes to test, e.g. --precisions fp32 fp16 bf16")
     parser.add_argument("--demo", action="store_true",
                         help="Demo mode: minimal batch size, fewer iterations, fast run")
-    parser.add_argument("--skip-thermal-warmup", action="store_true",
-                        help="Skip per-benchmark GPU thermal warmup (used when orchestrator already warmed up)")
+    parser.add_argument("--skip-thermal-warmup", action="store_true", default=True,
+                        help="Skip per-benchmark GPU thermal warmup (default: True)")
