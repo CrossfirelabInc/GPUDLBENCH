@@ -150,8 +150,22 @@ FUND_REPEATS: int = 20
 # ── Multi-GPU Scaling (Benchmark 10) ─────────────────────────────────────────
 MULTIGPU_VISION_BATCH_PER_GPU: int = 32
 MULTIGPU_NLP_BATCH_PER_GPU: int = 16
+MULTIGPU_LLM_BATCH_PER_GPU: int = 2
+MULTIGPU_LLM_SEQ_LENGTH: int = 128
+MULTIGPU_LLM_GEN_TOKENS: int = 64
 MULTIGPU_WARMUP: int = 5
 MULTIGPU_ITERATIONS: int = 50
+
+# Llama-3B architecture (same family as DeepSeek-R1-Distill-Llama)
+MULTIGPU_LLM_CONFIG: dict = {
+    "num_hidden_layers": 32,
+    "hidden_size": 2048,
+    "num_attention_heads": 16,
+    "num_key_value_heads": 8,     # GQA (grouped-query attention)
+    "intermediate_size": 8192,
+    "vocab_size": 32000,
+    "max_position_embeddings": 2048,
+}
 
 # ── Power / Thermal Monitoring ────────────────────────────────────────────────
 MONITOR_INTERVAL_SEC: float = 0.5
