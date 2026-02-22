@@ -30,7 +30,6 @@ import os
 import socket
 import sys
 import time
-import warnings
 from pathlib import Path
 
 import torch
@@ -102,12 +101,18 @@ def _build_bert_base() -> nn.Module:
 
 def _build_gpt2() -> nn.Module:
     cfg = GPT2Config(**MULTIGPU_LLM_CONFIG)
-    # Prevent "loss_type=None" warning in transformers >= 4.x
+    # Suppress "loss_type=None" warning emitted by transformers logger
     if getattr(cfg, "loss_type", "MISSING") is None:
         cfg.loss_type = "ForCausalLMLoss"
-    with warnings.catch_warnings():
-        warnings.filterwarnings("ignore", message=".*loss_type.*")
-        return GPT2LMHeadModel(cfg)  # FP32; AMP autocast handles FP16 compute
+    import logging as _logging
+    _tf_logger = _logging.getLogger("transformers.modeling_utils")
+    _prev_level = _tf_logger.level
+    _tf_logger.setLevel(_logging.ERROR)
+    try:
+        model = GPT2LMHeadModel(cfg)  # FP32; AMP autocast handles FP16 compute
+    finally:
+        _tf_logger.setLevel(_prev_level)
+    return model
 
 
 # ──────────────────────────── micro-step functions ────────────────────────────
@@ -188,7 +193,6 @@ def _ddp_train_worker(rank, world_size, port, model_key, batch_per_gpu,
     model = _MODEL_BUILDERS[model_key]().to(rank)
     model = DDP(model, device_ids=[rank],
                 gradient_as_bucket_view=True,
-                static_graph=True,
                 bucket_cap_mb=100)
     model.train()
     optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4)
