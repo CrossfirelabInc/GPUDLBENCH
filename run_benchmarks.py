@@ -169,9 +169,14 @@ def main():
     parser.add_argument("--model-set", type=str, default="default",
                         choices=["default", "popular"],
                         help="LLM model set for benchmark 5 (default: default)")
+    parser.add_argument("--demo", action="store_true",
+                        help="Demo mode: minimal batch size, fewer iterations, "
+                             "skip benchmarks 6/9/10 for a fast ~5min run")
     args = parser.parse_args()
 
     skip_set = set(args.skip)
+    if args.demo:
+        skip_set |= {6, 9, 10}
 
     # ── Session setup ─────────────────────────────────────────────────
     session_id = make_session_id()
@@ -195,6 +200,8 @@ def main():
 
     print("=" * 60)
     print("GPU DL Benchmark Suite")
+    if args.demo:
+        print(">>> DEMO MODE — fast run, minimal batch sizes <<<")
     print("=" * 60)
     print(f"Session: {session_id}")
     print(f"Output:  {session_dir}")
@@ -217,9 +224,14 @@ def main():
             continue
 
         # Pass --model-set to the LLM benchmark (benchmark 5)
-        extra = ["--model-set", args.model_set] if num == 5 else None
+        extra = []
+        if num == 5:
+            extra.extend(["--model-set", args.model_set])
+        if args.demo:
+            extra.append("--demo")
         result = run_benchmark(num, name, script, total,
-                               output_dir=str(session_dir), extra_args=extra)
+                               output_dir=str(session_dir),
+                               extra_args=extra or None)
         if result == "pass":
             passed += 1
         elif result == "fail":

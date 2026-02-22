@@ -211,34 +211,46 @@ def _pow2_range(start: int, max_bs: int = 1024) -> list[int]:
     return sizes
 
 
-def get_vision_train_batch_sizes(vram_gb: float) -> list[int]:
+def get_vision_train_batch_sizes(vram_gb: float, demo: bool = False) -> list[int]:
     # Start at 2 for tiny GPUs, 8 for normal ones.  Upper bound is generous
     # — OOM will stop the sweep naturally.
     start = 2 if vram_gb < 8 else 8
+    if demo:
+        return [start]
     return _pow2_range(start, max_bs=512)
 
 
-def get_vision_infer_batch_sizes(vram_gb: float) -> list[int]:
+def get_vision_infer_batch_sizes(vram_gb: float, demo: bool = False) -> list[int]:
     # Always include BS=1 for latency measurement.
+    if demo:
+        return [1]
     return _pow2_range(1, max_bs=512)
 
 
-def get_nlp_train_batch_sizes(vram_gb: float, model_name: str) -> list[int]:
+def get_nlp_train_batch_sizes(vram_gb: float, model_name: str, demo: bool = False) -> list[int]:
     if "large" in model_name.lower():
         start = 1 if vram_gb < 16 else 2
+        if demo:
+            return [start]
         return _pow2_range(start, max_bs=128)
     # bert-base
     start = 2 if vram_gb < 8 else 4
+    if demo:
+        return [start]
     return _pow2_range(start, max_bs=256)
 
 
-def get_nlp_infer_batch_sizes(vram_gb: float, model_name: str) -> list[int]:
+def get_nlp_infer_batch_sizes(vram_gb: float, model_name: str, demo: bool = False) -> list[int]:
     # Always include BS=1 for latency measurement.
+    if demo:
+        return [1]
     max_bs = 128 if "large" in model_name.lower() else 256
     return _pow2_range(1, max_bs=max_bs)
 
 
-def get_detection_batch_sizes(vram_gb: float) -> list[int]:
+def get_detection_batch_sizes(vram_gb: float, demo: bool = False) -> list[int]:
+    if demo:
+        return [1]
     return _pow2_range(1, max_bs=32)
 
 
@@ -426,3 +438,5 @@ def add_common_args(parser) -> None:
                         help="Disable power/thermal monitoring")
     parser.add_argument("--precisions", nargs="+", default=None,
                         help="Precision modes to test, e.g. --precisions fp32 fp16 bf16")
+    parser.add_argument("--demo", action="store_true",
+                        help="Demo mode: minimal batch size, fewer iterations, fast run")

@@ -32,7 +32,14 @@ from benchmarks.benchmark_utils import (
     save_results,
     set_reproducibility,
 )
-from benchmarks.config import GEMM_REPEATS, GEMM_SIZES, GEMM_WARMUP
+from benchmarks.config import (
+    DEMO_GEMM_REPEATS,
+    DEMO_GEMM_SIZES,
+    DEMO_GEMM_WARMUP,
+    GEMM_REPEATS,
+    GEMM_SIZES,
+    GEMM_WARMUP,
+)
 
 
 # ─── GEMM kernels ─────────────────────────────────────────────────────────────
@@ -132,6 +139,13 @@ def main() -> None:
     add_common_args(parser)
     args = parser.parse_args()
 
+    # Demo mode overrides
+    if args.demo:
+        global GEMM_WARMUP, GEMM_REPEATS
+        GEMM_WARMUP = DEMO_GEMM_WARMUP
+        GEMM_REPEATS = DEMO_GEMM_REPEATS
+        print("*** DEMO MODE — reduced sizes and repetitions ***\n")
+
     separator = "=" * 72
     print(separator)
     print("Benchmark 7 — GEMM Compute Stress")
@@ -145,19 +159,22 @@ def main() -> None:
     set_reproducibility(args.seed)
 
     cc_major, cc_minor = torch.cuda.get_device_capability(device)
-    sizes: list[int] = GEMM_SIZES
+    sizes: list[int] = DEMO_GEMM_SIZES if args.demo else GEMM_SIZES
 
     # Build precision list based on capabilities
-    precisions: list[tuple[str, ...]] = [
-        ("FP64", torch.float64),
-        ("FP32", torch.float32),
-        ("FP16", torch.float16),
-    ]
-    if cc_major >= 8:
-        precisions.append(("BF16", torch.bfloat16))
-    # FP8 requires CC ≥ 8.9  (Ada Lovelace / Hopper / Blackwell)
-    if cc_major > 8 or (cc_major == 8 and cc_minor >= 9):
-        precisions.append(("FP8", "fp8"))
+    if args.demo:
+        precisions: list[tuple[str, ...]] = [("FP16", torch.float16)]
+    else:
+        precisions: list[tuple[str, ...]] = [
+            ("FP64", torch.float64),
+            ("FP32", torch.float32),
+            ("FP16", torch.float16),
+        ]
+        if cc_major >= 8:
+            precisions.append(("BF16", torch.bfloat16))
+        # FP8 requires CC ≥ 8.9  (Ada Lovelace / Hopper / Blackwell)
+        if cc_major > 8 or (cc_major == 8 and cc_minor >= 9):
+            precisions.append(("FP8", "fp8"))
 
     print(f"\nMatrix sizes : {sizes}")
     print(f"Precisions   : {[p[0] for p in precisions]}")

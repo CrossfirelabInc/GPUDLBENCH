@@ -27,6 +27,8 @@ from torchvision.models.detection import (
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from benchmarks.config import (
+    DEMO_DETECTION_ITERATIONS,
+    DEMO_DETECTION_WARMUP,
     DETECTION_IMAGE_SIZE,
     DETECTION_ITERATIONS,
     DETECTION_NUM_CLASSES,
@@ -228,6 +230,12 @@ def main() -> None:
     parser.add_argument("--iterations", type=int, default=DETECTION_ITERATIONS)
     args = parser.parse_args()
 
+    # Demo mode overrides
+    if args.demo:
+        args.warmup = DEMO_DETECTION_WARMUP
+        args.iterations = DEMO_DETECTION_ITERATIONS
+        print("*** DEMO MODE — minimal batch size, reduced iterations ***\n")
+
     print("=" * 70)
     print("Benchmark 8 — Object Detection Training")
     print("Models: Faster R-CNN (ResNet-50 FPN) + Mask R-CNN (ResNet-50 FPN)")
@@ -247,8 +255,10 @@ def main() -> None:
     logging.getLogger("torch._dynamo").setLevel(logging.ERROR)
 
     precisions = args.precisions or TRAINING_PRECISIONS
+    if args.demo:
+        precisions = ["fp16"]
     precisions = filter_precisions_for_gpu(precisions, args.device)
-    batch_sizes = args.batch_sizes or get_detection_batch_sizes(gpu_info["vram_gb"])
+    batch_sizes = args.batch_sizes or get_detection_batch_sizes(gpu_info["vram_gb"], demo=args.demo)
 
     print(f"Precisions: {precisions}")
     print(f"Batch sizes: {batch_sizes}")

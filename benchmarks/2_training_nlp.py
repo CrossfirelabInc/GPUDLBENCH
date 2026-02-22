@@ -18,6 +18,8 @@ from transformers import BertForSequenceClassification, BertConfig
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from benchmarks.config import (
+    DEMO_TRAIN_ITERATIONS,
+    DEMO_TRAIN_WARMUP,
     NLP_MODELS,
     NLP_NUM_LABELS,
     NLP_SEQ_LENGTH,
@@ -159,6 +161,12 @@ def main() -> None:
     parser.add_argument("--iterations", type=int, default=NLP_TRAIN_ITERATIONS)
     args = parser.parse_args()
 
+    # Demo mode overrides
+    if args.demo:
+        args.warmup = DEMO_TRAIN_WARMUP
+        args.iterations = DEMO_TRAIN_ITERATIONS
+        print("*** DEMO MODE — minimal batch size, reduced iterations ***\n")
+
     print("=" * 70)
     print("NLP Training Benchmark - BERT Models")
     print("=" * 70)
@@ -173,6 +181,8 @@ def main() -> None:
     set_tf32(True)
 
     precisions = args.precisions or TRAINING_PRECISIONS
+    if args.demo:
+        precisions = ["fp16"]
     precisions = filter_precisions_for_gpu(precisions, args.device)
 
     print(f"Precisions: {precisions}")
@@ -191,7 +201,7 @@ def main() -> None:
 
     for model_name in args.models:
         model_config = NLP_MODELS[model_name]
-        batch_sizes = args.batch_sizes or get_nlp_train_batch_sizes(gpu_info["vram_gb"], model_name)
+        batch_sizes = args.batch_sizes or get_nlp_train_batch_sizes(gpu_info["vram_gb"], model_name, demo=args.demo)
 
         print(f"\n{model_name.upper()}")
         print(f"Batch sizes: {batch_sizes}")

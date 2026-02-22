@@ -20,6 +20,8 @@ import torchvision.models as models
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from benchmarks.config import (
+    DEMO_TRAIN_ITERATIONS,
+    DEMO_TRAIN_WARMUP,
     VISION_IMAGE_SIZE,
     VISION_MODELS,
     VISION_NUM_CLASSES,
@@ -152,6 +154,12 @@ def main() -> None:
     parser.add_argument("--iterations", type=int, default=VISION_TRAIN_ITERATIONS)
     args = parser.parse_args()
 
+    # Demo mode overrides
+    if args.demo:
+        args.warmup = DEMO_TRAIN_WARMUP
+        args.iterations = DEMO_TRAIN_ITERATIONS
+        print("*** DEMO MODE — minimal batch size, reduced iterations ***\n")
+
     print("=" * 70)
     print("Vision Training Benchmark - ResNet Models")
     print("=" * 70)
@@ -166,8 +174,10 @@ def main() -> None:
     set_tf32(True)  # Let TF32 be on (Ampere+), realistic default
 
     precisions = args.precisions or TRAINING_PRECISIONS
+    if args.demo:
+        precisions = ["fp16"]
     precisions = filter_precisions_for_gpu(precisions, args.device)
-    batch_sizes = args.batch_sizes or get_vision_train_batch_sizes(gpu_info["vram_gb"])
+    batch_sizes = args.batch_sizes or get_vision_train_batch_sizes(gpu_info["vram_gb"], demo=args.demo)
 
     print(f"Precisions: {precisions}")
     print(f"Batch sizes: {batch_sizes}")

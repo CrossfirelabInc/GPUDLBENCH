@@ -6,7 +6,19 @@ from pathlib import Path
 
 # ── Reproducibility ───────────────────────────────────────────────────────────
 RANDOM_SEED: int = 42
-
+# ── Demo Mode ───────────────────────────────────────────────────────────────────────
+# When --demo is used: only minimal batch size, fewer iterations, skip
+# heavy benchmarks (6, 9, 10).  Useful for quick integration testing.
+DEMO_TRAIN_WARMUP: int = 3
+DEMO_TRAIN_ITERATIONS: int = 20
+DEMO_INFER_WARMUP: int = 5
+DEMO_INFER_ITERATIONS: int = 50
+DEMO_GEMM_SIZES: list[int] = [1024, 4096]
+DEMO_GEMM_WARMUP: int = 2
+DEMO_GEMM_REPEATS: int = 5
+DEMO_LLM_NUM_TOKENS: int = 128
+DEMO_DETECTION_WARMUP: int = 2
+DEMO_DETECTION_ITERATIONS: int = 15
 # ── General ───────────────────────────────────────────────────────────────────
 OUTPUT_DIR: str = "results"
 

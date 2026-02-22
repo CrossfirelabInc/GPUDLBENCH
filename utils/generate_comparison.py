@@ -124,9 +124,9 @@ _STRINGS: dict[str, dict[str, str]] = {
         "detect_title":             "Nesne Algılama Eğitimi",
         "detect_subtitle":          "Faster R-CNN / Mask R-CNN",
         "detect_ylabel":            "Görüntü / sn",
-        # — Same Batch Size
-        "same_bs_suffix":           "(Aynı Batch Boyutu)",
-        "same_bs_subtitle_prefix":  "En düşük ortak batch boyutu —",
+        # — Batch-Normalized
+        "batch_norm_suffix":        "(Batch-Normalized)",
+        "batch_norm_ylabel":        "İterasyon / sn",
         # — Scorecard
         "score_title":              "GPU Karşılaştırma Kartı",
         "score_best":               "\u2605 EN İYİ",
@@ -230,9 +230,9 @@ _STRINGS: dict[str, dict[str, str]] = {
         "detect_title":             "Object Detection Training",
         "detect_subtitle":          "Faster R-CNN / Mask R-CNN",
         "detect_ylabel":            "Images / sec",
-        # — Same Batch Size
-        "same_bs_suffix":           "(Same Batch Size)",
-        "same_bs_subtitle_prefix":  "Lowest common batch size —",
+        # — Batch-Normalized
+        "batch_norm_suffix":        "(Batch-Normalized)",
+        "batch_norm_ylabel":        "Iterations / sec",
         # — Scorecard
         "score_title":              "GPU Scorecard",
         "score_best":               "\u2605 BEST",
@@ -322,17 +322,6 @@ def _best_with_bs(rows: list[dict], filter_fn, value_key: str) -> tuple[float | 
     return best[0], best[1]
 
 
-def _at_min_bs(rows: list[dict], filter_fn, value_key: str) -> tuple[float | None, int | None]:
-    """Return (value, batch_size) at the smallest successful batch size."""
-    candidates = [(r.get(value_key), r.get("batch_size"))
-                  for r in rows if filter_fn(r) and r.get(value_key) is not None
-                  and r.get("batch_size") is not None]
-    if not candidates:
-        return None, None
-    lowest = min(candidates, key=lambda x: x[1])
-    return lowest[0], lowest[1]
-
-
 def _safe(v: Any) -> Any:
     if isinstance(v, float):
         return None if (math.isnan(v) or math.isinf(v)) else round(v, 4)
@@ -354,11 +343,7 @@ def extract_training_vision(data: dict) -> Metricdict:
                 out[f"train_vision_{model}_{prec.lower()}_img_per_sec"] = _safe(v)
                 if bs is not None:
                     out[f"train_vision_{model}_{prec.lower()}_best_bs"] = bs
-            vm, bsm = _at_min_bs(rows, filt, "throughput_img_per_sec")
-            if vm is not None:
-                out[f"train_vision_{model}_{prec.lower()}_minbs_img_per_sec"] = _safe(vm)
-                if bsm is not None:
-                    out[f"train_vision_{model}_{prec.lower()}_minbs"] = bsm
+                    out[f"train_vision_{model}_{prec.lower()}_norm_iter_per_sec"] = _safe(v / bs)
     return out
 
 
@@ -375,11 +360,7 @@ def extract_training_nlp(data: dict) -> Metricdict:
                 out[f"train_nlp_{model}_{prec.lower()}_samples_per_sec"] = _safe(v)
                 if bs is not None:
                     out[f"train_nlp_{model}_{prec.lower()}_best_bs"] = bs
-            vm, bsm = _at_min_bs(rows, filt, "throughput_samples_per_sec")
-            if vm is not None:
-                out[f"train_nlp_{model}_{prec.lower()}_minbs_samples_per_sec"] = _safe(vm)
-                if bsm is not None:
-                    out[f"train_nlp_{model}_{prec.lower()}_minbs"] = bsm
+                    out[f"train_nlp_{model}_{prec.lower()}_norm_iter_per_sec"] = _safe(v / bs)
     return out
 
 
@@ -396,11 +377,6 @@ def extract_inference_vision(data: dict) -> Metricdict:
                 out[f"infer_vision_{model}_{prec.lower()}_img_per_sec"] = _safe(v)
                 if bs is not None:
                     out[f"infer_vision_{model}_{prec.lower()}_best_bs"] = bs
-            vm, bsm = _at_min_bs(rows, filt, "throughput_img_per_sec")
-            if vm is not None:
-                out[f"infer_vision_{model}_{prec.lower()}_minbs_img_per_sec"] = _safe(vm)
-                if bsm is not None:
-                    out[f"infer_vision_{model}_{prec.lower()}_minbs"] = bsm
     return out
 
 
@@ -417,11 +393,6 @@ def extract_inference_nlp(data: dict) -> Metricdict:
                 out[f"infer_nlp_{model}_{prec.lower()}_samples_per_sec"] = _safe(v)
                 if bs is not None:
                     out[f"infer_nlp_{model}_{prec.lower()}_best_bs"] = bs
-            vm, bsm = _at_min_bs(rows, filt, "throughput_samples_per_sec")
-            if vm is not None:
-                out[f"infer_nlp_{model}_{prec.lower()}_minbs_samples_per_sec"] = _safe(vm)
-                if bsm is not None:
-                    out[f"infer_nlp_{model}_{prec.lower()}_minbs"] = bsm
     return out
 
 
@@ -510,11 +481,7 @@ def extract_training_detection(data: dict) -> Metricdict:
                 out[f"detect_{safe_model}_{prec.lower()}_img_per_sec"] = _safe(v)
                 if bs is not None:
                     out[f"detect_{safe_model}_{prec.lower()}_best_bs"] = bs
-            vm, bsm = _at_min_bs(rows, filt, "throughput_img_per_sec")
-            if vm is not None:
-                out[f"detect_{safe_model}_{prec.lower()}_minbs_img_per_sec"] = _safe(vm)
-                if bsm is not None:
-                    out[f"detect_{safe_model}_{prec.lower()}_minbs"] = bsm
+                    out[f"detect_{safe_model}_{prec.lower()}_norm_iter_per_sec"] = _safe(v / bs)
     return out
 
 
@@ -1226,136 +1193,100 @@ def chart_detection(d: ComparisonData, out: Path):
     _save(fig, out / "cmp_detection.png")
 
 
-# ── Same Batch Size Charts ───────────────────────────────────────────────────
+# ── Batch-Normalized Training Charts ─────────────────────────────────────────
 
-def _same_bs_chart(d: ComparisonData, out: Path,
-                   models: list[str], precisions: list[str],
-                   tput_prefix: str, tput_suffix: str,
-                   minbs_prefix: str, minbs_tput_suffix: str,
-                   minbs_bs_suffix: str,
-                   title_key: str, ylabel_key: str,
-                   subtitle_key: str, filename: str):
-    """Generic helper for same-batch-size comparison charts.
+def _batch_norm_chart(d: ComparisonData, out: Path,
+                      models: list[str], precisions: list[str],
+                      metric_prefix: str,
+                      bs_prefix: str,
+                      title_key: str, subtitle_key: str,
+                      filename: str):
+    """Chart showing throughput / batch_size (iterations per second).
 
-    For each model × precision, looks up the ``*_minbs`` throughput metric
-    (measured at the smallest tested batch size) and the ``*_minbs`` batch
-    size value.  Only categories where **all** GPUs share the same min-BS
-    value are included; those where GPUs diverge are skipped to keep the
-    comparison fair.
+    This removes the VRAM advantage: a GPU with more VRAM can use a larger
+    batch but each iteration is heavier.  Dividing throughput by batch size
+    yields pure per-iteration speed — a fair comparison of raw compute.
     """
     cats: list[str] = []
     val_keys: list[str] = []
-    bs_values: list[int] = []
+    bs_keys: list[str] = []
 
     for model in models:
         for prec in precisions:
-            tput_mid = f"{minbs_prefix}{model}_{prec}{minbs_tput_suffix}"
-            bs_mid = f"{minbs_prefix}{model}_{prec}{minbs_bs_suffix}"
-            tput_vals = d.get(tput_mid)
-            bs_vals = d.get(bs_mid)
-            # Skip if no GPU has this metric
-            if not any(v is not None for v in tput_vals):
+            norm_key = f"{metric_prefix}{model}_{prec}_norm_iter_per_sec"
+            bs_key = f"{bs_prefix}{model}_{prec}_best_bs"
+            norm_vals = d.get(norm_key)
+            if not any(v is not None for v in norm_vals):
                 continue
-            # Determine the common min BS across all GPUs that have data
-            gpu_bss = [int(b) for b in bs_vals if b is not None]
-            if not gpu_bss:
-                continue
-            # All GPUs should start from the same auto-scale base, so
-            # the min-BS should be identical.  Use the minimum observed.
-            common_bs = min(gpu_bss)
             nice_model = model.replace("_", "-").upper() if "_" not in model else \
                          model.replace("faster_rcnn_resnet50", "Faster R-CNN") \
                               .replace("mask_rcnn_resnet50", "Mask R-CNN") \
                               .replace("resnet", "RESNET").replace("bert-", "BERT-")
-            # Fallback: just uppercase
             if nice_model == model:
                 nice_model = model.upper()
             cats.append(f"{nice_model} {prec.upper()}")
-            val_keys.append(tput_mid)
-            bs_values.append(common_bs)
+            val_keys.append(norm_key)
+            bs_keys.append(bs_key)
 
     if not cats:
         return
 
     vals = [[d.get(m)[gi] for m in val_keys] for gi in range(d.n_gpus)]
 
-    # Build annotation showing common BS
+    # Build annotations showing best BS used
     anns: list[list[str]] = []
     for gi in range(d.n_gpus):
         row: list[str] = []
-        for ci, bk in enumerate(val_keys):
+        for ci, bk in enumerate(bs_keys):
             v = vals[gi][ci]
-            row.append(f"BS={bs_values[ci]}" if v is not None else "")
+            bs_val = d.get(bk)[gi]
+            if v is not None and bs_val is not None:
+                row.append(f"BS={int(bs_val)}")
+            else:
+                row.append("")
         anns.append(row)
 
-    title = f"{S(title_key)} {S('same_bs_suffix')}"
+    title = f"{S(title_key)} {S('batch_norm_suffix')}"
     fig, ax = _standard_fig(title, S("higher_better"),
                             ACCENT_BLUE, d.n_gpus, len(cats),
                             height_ratio=max(1.0, len(cats) * 0.18))
-    _horizontal_grouped_bar(ax, cats, d.gpu_names(), vals, S(ylabel_key),
-                 S(subtitle_key), annotations_per_gpu=anns)
+    _horizontal_grouped_bar(ax, cats, d.gpu_names(), vals, S("batch_norm_ylabel"),
+                 S(subtitle_key), fmt="{:.2f}", annotations_per_gpu=anns)
     fig.tight_layout(rect=[0, 0.02, 1, 0.92])
     _save(fig, out / filename)
 
 
-def chart_training_vision_same_bs(d: ComparisonData, out: Path):
-    _same_bs_chart(d, out,
-                   models=["resnet50", "resnet101"],
-                   precisions=["fp32", "fp16", "bf16"],
-                   tput_prefix="train_vision_", tput_suffix="_img_per_sec",
-                   minbs_prefix="train_vision_", minbs_tput_suffix="_minbs_img_per_sec",
-                   minbs_bs_suffix="_minbs",
-                   title_key="train_vision_title", ylabel_key="train_vision_ylabel",
-                   subtitle_key="train_vision_subtitle",
-                   filename="cmp_training_vision_same_bs.png")
+def chart_training_vision_batch_norm(d: ComparisonData, out: Path):
+    _batch_norm_chart(d, out,
+                      models=["resnet50", "resnet101"],
+                      precisions=["fp32", "fp16", "bf16"],
+                      metric_prefix="train_vision_",
+                      bs_prefix="train_vision_",
+                      title_key="train_vision_title",
+                      subtitle_key="train_vision_subtitle",
+                      filename="cmp_training_vision_batch_norm.png")
 
 
-def chart_training_nlp_same_bs(d: ComparisonData, out: Path):
-    _same_bs_chart(d, out,
-                   models=["bert-base", "bert-large"],
-                   precisions=["fp32", "fp16", "bf16"],
-                   tput_prefix="train_nlp_", tput_suffix="_samples_per_sec",
-                   minbs_prefix="train_nlp_", minbs_tput_suffix="_minbs_samples_per_sec",
-                   minbs_bs_suffix="_minbs",
-                   title_key="train_nlp_title", ylabel_key="train_nlp_ylabel",
-                   subtitle_key="train_nlp_subtitle",
-                   filename="cmp_training_nlp_same_bs.png")
+def chart_training_nlp_batch_norm(d: ComparisonData, out: Path):
+    _batch_norm_chart(d, out,
+                      models=["bert-base", "bert-large"],
+                      precisions=["fp32", "fp16", "bf16"],
+                      metric_prefix="train_nlp_",
+                      bs_prefix="train_nlp_",
+                      title_key="train_nlp_title",
+                      subtitle_key="train_nlp_subtitle",
+                      filename="cmp_training_nlp_batch_norm.png")
 
 
-def chart_inference_vision_same_bs(d: ComparisonData, out: Path):
-    _same_bs_chart(d, out,
-                   models=["resnet50", "resnet101"],
-                   precisions=["fp32", "fp16", "bf16"],
-                   tput_prefix="infer_vision_", tput_suffix="_img_per_sec",
-                   minbs_prefix="infer_vision_", minbs_tput_suffix="_minbs_img_per_sec",
-                   minbs_bs_suffix="_minbs",
-                   title_key="infer_vision_title", ylabel_key="infer_vision_ylabel",
-                   subtitle_key="infer_vision_subtitle",
-                   filename="cmp_inference_vision_same_bs.png")
-
-
-def chart_inference_nlp_same_bs(d: ComparisonData, out: Path):
-    _same_bs_chart(d, out,
-                   models=["bert-base", "bert-large"],
-                   precisions=["fp32", "fp16", "bf16"],
-                   tput_prefix="infer_nlp_", tput_suffix="_samples_per_sec",
-                   minbs_prefix="infer_nlp_", minbs_tput_suffix="_minbs_samples_per_sec",
-                   minbs_bs_suffix="_minbs",
-                   title_key="infer_nlp_title", ylabel_key="infer_nlp_ylabel",
-                   subtitle_key="infer_nlp_subtitle",
-                   filename="cmp_inference_nlp_same_bs.png")
-
-
-def chart_detection_same_bs(d: ComparisonData, out: Path):
-    _same_bs_chart(d, out,
-                   models=["faster_rcnn_resnet50", "mask_rcnn_resnet50"],
-                   precisions=["fp32", "fp16", "bf16"],
-                   tput_prefix="detect_", tput_suffix="_img_per_sec",
-                   minbs_prefix="detect_", minbs_tput_suffix="_minbs_img_per_sec",
-                   minbs_bs_suffix="_minbs",
-                   title_key="detect_title", ylabel_key="detect_ylabel",
-                   subtitle_key="detect_subtitle",
-                   filename="cmp_detection_same_bs.png")
+def chart_detection_batch_norm(d: ComparisonData, out: Path):
+    _batch_norm_chart(d, out,
+                      models=["faster_rcnn_resnet50", "mask_rcnn_resnet50"],
+                      precisions=["fp32", "fp16", "bf16"],
+                      metric_prefix="detect_",
+                      bs_prefix="detect_",
+                      title_key="detect_title",
+                      subtitle_key="detect_subtitle",
+                      filename="cmp_detection_batch_norm.png")
 
 
 # ── Power Efficiency Charts ──────────────────────────────────────────────────
@@ -2005,15 +1936,13 @@ def _run_charts(json_path: Path, output_dir: Path):
         chart_training_nlp,
         chart_inference_vision,
         chart_inference_nlp,
-        chart_training_vision_same_bs,
-        chart_training_nlp_same_bs,
-        chart_inference_vision_same_bs,
-        chart_inference_nlp_same_bs,
+        chart_training_vision_batch_norm,
+        chart_training_nlp_batch_norm,
         chart_llm,
         chart_gemm,
         chart_fundamentals,
         chart_detection,
-        chart_detection_same_bs,
+        chart_detection_batch_norm,
         chart_power_efficiency,
         chart_relative_performance,
         chart_cnn_vs_transformer,

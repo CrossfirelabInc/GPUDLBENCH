@@ -19,6 +19,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from benchmarks.config import (
+    DEMO_LLM_NUM_TOKENS,
     LLM_MODEL_SETS,
     LLM_NUM_TOKENS,
     LLM_PROMPT,
@@ -138,7 +139,8 @@ def parse_llama_output(output: str) -> dict:
     return result
 
 
-def benchmark_model(model: dict, model_path: Path | None, llama_cli: Path) -> dict:
+def benchmark_model(model: dict, model_path: Path | None, llama_cli: Path,
+                    num_tokens: int = LLM_NUM_TOKENS) -> dict:
     """Benchmark a single GGUF model."""
 
     print(f"  Running benchmark on {model['name']}...", end=" ", flush=True)
@@ -162,7 +164,7 @@ def benchmark_model(model: dict, model_path: Path | None, llama_cli: Path) -> di
         cmd = [
             str(llama_cli),
             "-m", str(model_path),
-            "-n", str(LLM_NUM_TOKENS),
+            "-n", str(num_tokens),
             "-p", LLM_PROMPT,
             "-ngl", "999",       # Offload all layers to GPU
             "--temp", "0.7",
@@ -218,6 +220,12 @@ def main() -> None:
                         help="Which model set to benchmark (default: default)")
     args = parser.parse_args()
 
+    # Demo mode: fewer tokens, only first model
+    num_tokens = LLM_NUM_TOKENS
+    if args.demo:
+        num_tokens = DEMO_LLM_NUM_TOKENS
+        print("*** DEMO MODE — first model only, reduced tokens ***\n")
+
     print("=" * 70)
     print("LLM Token Generation Benchmark")
     print("GamersNexus Methodology")
@@ -252,6 +260,8 @@ def main() -> None:
 
     # Resolve model set
     models = get_llm_models(args.model_set)
+    if args.demo:
+        models = models[:1]  # Only first (smallest) model in demo
     print(f"Model set: {args.model_set} ({len(models)} models)")
 
     monitor = None
@@ -281,7 +291,7 @@ def main() -> None:
             continue
 
         model_path = find_model(model, models_dir)
-        result = benchmark_model(model, model_path, llama_cli)
+        result = benchmark_model(model, model_path, llama_cli, num_tokens=num_tokens)
         results.append(result)
         time.sleep(2)  # Cool-down between models
 
@@ -291,7 +301,7 @@ def main() -> None:
         results, "llm_tokens_per_sec", gpu_info,
         extra_meta={
             "prompt": LLM_PROMPT,
-            "num_tokens": LLM_NUM_TOKENS,
+            "num_tokens": num_tokens,
             "model_set": args.model_set,
             "hw_monitor": hw_stats if hw_stats else None,
         },
