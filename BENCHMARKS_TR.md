@@ -13,6 +13,7 @@ Fotoğraf sınıflandırma modelleri (ResNet-50 ve ResNet-101) GPU üzerinde eğ
 - Kendi fotoğraf sınıflandırma modelinizi (örneğin kedi/köpek ayırma, tıbbi görüntü analizi, ürün tanıma) eğitmek istiyorsanız, bu test GPU'nuzun bu işi ne kadar hızlı yapacağını gösterir.
 - Yüksek sonuç = daha kısa eğitim süresi. Örneğin 500 img/s ile 1000 img/s arasındaki fark, 10 saatlik bir eğitimi 5 saate düşürmek demektir.
 - FP16/BF16 sonuçları, "mixed precision" eğitim ile ne kadar hız kazandığınızı gösterir — modern GPU'larda bu **2-3 kat** hız farkı yaratabilir.
+- Karşılaştırma grafiklerinde her GPU'nun **en yüksek throughput'u** (farklı batch boyutlarında olabilir) ve **aynı batch boyutundaki** performansı ayrı ayrı gösterilir.
 
 ---
 
@@ -26,6 +27,7 @@ Doğal dil işleme (NLP) modelleri olan BERT-base ve BERT-large, GPU üzerinde e
 - Duygu analizi, metin sınıflandırma, soru-cevap sistemi gibi projeler bu tür eğitim kullanır.
 - BERT-large, BERT-base'den **3 kat** daha büyük — büyük modellerde GPU farkı daha belirgin olur.
 - Araştırmacılar ve şirketler bu sonuçlara bakarak GPU yatırım kararı verir.
+- Karşılaştırma grafiklerinde **maksimum verim** ve **aynı batch boyutu** grafikleri ayrı sunulur.
 
 ---
 
@@ -38,6 +40,7 @@ Doğal dil işleme (NLP) modelleri olan BERT-base ve BERT-large, GPU üzerinde e
 - Güvenlik kamerası analizi, otomatik araç plaka tanıma, fabrika kalite kontrol gibi **gerçek zamanlı** uygulamalarda bu sayı kritiktir.
 - 1000 img/s = saniyede 1000 fotoğrafı sınıflandırabilme. Bir güvenlik kamerası 30 FPS yayın yapar, yani 1000 img/s ile **33 kamerayı aynı anda** analiz edebilirsiniz.
 - Web servisleri için: her API isteğinde bir fotoğraf sınıflandırılır, yüksek throughput = daha fazla eşzamanlı kullanıcı.
+- Karşılaştırmada hem **en iyi batch boyutundaki zirve** hem de **aynı batch boyutundaki saf hız** grafikleri mevcuttur.
 
 ---
 
@@ -50,6 +53,7 @@ Eğitilmiş NLP modelleriyle saniyede kaç metin örneğinin işlenebileceği ö
 - Chatbot, arama motoru, otomatik çeviri, spam filtresi gibi servislerde her kullanıcı isteği bir inference çağrısıdır.
 - 500 sample/s = saniyede 500 metin analizi. Örneğin bir e-ticaret sitesinde ürün yorumlarının anlık duygu analizi.
 - Yüksek inference hızı = daha düşük sunucu maliyeti. Aynı GPU ile daha fazla kullanıcıya hizmet verebilirsiniz.
+- GPU'lar arası farkın VRAM mı yoksa saf hesaplama gücünden mi geldiğini görmek için **aynı batch boyutu** grafiğine bakın.
 
 ---
 
@@ -106,6 +110,7 @@ Fotoğraftaki nesneleri tespit eden ve konumlarını belirleyen modeller (Faster
 - Güvenlik: kamera görüntülerinde şüpheli nesne/kişi algılama.
 - Perakende: raf analizi, müşteri sayma.
 - **ResNet sınıflandırmasından çok daha ağır bir iş yükü** — GPU belleği ve hesaplama gücü aynı anda test edilir.
+- Karşılaştırmada **maksimum verim** (farklı batch boyutları) ve **aynı batch boyutu** grafikleri ayrı sunulur.
 
 ---
 
@@ -156,6 +161,30 @@ Aynı iş yükünü 1 GPU ve 2 GPU ile çalıştırarak, ikinci GPU'nun ne kadar
 
 ---
 
+## Karşılaştırma Grafikleri: Maksimum Verim vs Aynı Batch Boyutu
+
+Benchmark testleri 1-4 ve 8 (görüntü/NLP eğitim, çıkarım ve nesne algılama) birden fazla batch boyutunda çalışır. Her GPU, destekleyebildiği en büyük batch boyutuna kadar otomatik olarak ölçeklenir. Bu nedenle farklı VRAM kapasitesine sahip GPU'lar farklı batch boyutlarına ulaşabilir.
+
+Karşılaştırma grafiklerinde bu durum **iki ayrı grafik** ile gösterilir:
+
+### Maksimum Verim (Max Throughput)
+- Her GPU'nun **en yüksek throughput'u** hangi batch boyutunda elde edildiyse o değer gösterilir.
+- Grafik etiketlerinde `(BS=64)` gibi açıklamalar yer alır — hangi batch boyutunun kullanıldığı görülür.
+- **Soru:** "Bu GPU pratikte en iyi performansını hangi batch boyutunda veriyor?"
+- **Dikkat:** Büyük VRAM'li GPU'lar daha yüksek batch boyutlarında çalışabildiği için avantajlı görünebilir.
+
+### Aynı Batch Boyutu (Same Batch Size)
+- Tüm GPU'lar **aynı (en düşük ortak) batch boyutunda** karşılaştırılır.
+- Bu, VRAM farkını devre dışı bırakarak **saf hesaplama gücünü** gösterir.
+- **Soru:** "Aynı koşullarda bu GPU ne kadar hızlı?"
+- Küçük VRAM'li kartlar büyük batch boyutlarını çalıştıramayabilir; bu grafik, herkesin eşit şartlarda yarıştığı bir ortam sunar.
+
+> **Hangisine bakmalı?**
+> - Gerçek dünya performansı için → **Maksimum Verim** grafiği (pratikte her GPU en uygun batch boyutunda çalışır)
+> - Saf GPU gücü karşılaştırması için → **Aynı Batch Boyutu** grafiği (VRAM avantajı olmadan sadece hesaplama)
+
+---
+
 ## Sonuçları Nasıl Okumalı?
 
 1. **Eğitim testleri** → "Bu GPU ile modelimi ne kadar hızlı eğitirim?"
@@ -166,3 +195,4 @@ Aynı iş yükünü 1 GPU ve 2 GPU ile çalıştırarak, ikinci GPU'nun ne kadar
 6. **Watt/Performans** → "Aynı performansı ne kadar az enerjiyle elde ediyorum?"
 7. **Görece performans** → "Bu GPU, en zayıf rakibinden kaç kat hızlı?"
 8. **Çift GPU testi** → "İkinci GPU gerçekten işe yarıyor mu?"
+9. **Maks. verim vs Aynı BS** → "Fark VRAM'den mi yoksa saf güçten mi geliyor?"

@@ -124,6 +124,9 @@ _STRINGS: dict[str, dict[str, str]] = {
         "detect_title":             "Nesne Algılama Eğitimi",
         "detect_subtitle":          "Faster R-CNN / Mask R-CNN",
         "detect_ylabel":            "Görüntü / sn",
+        # — Same Batch Size
+        "same_bs_suffix":           "(Aynı Batch Boyutu)",
+        "same_bs_subtitle_prefix":  "En düşük ortak batch boyutu —",
         # — Scorecard
         "score_title":              "GPU Karşılaştırma Kartı",
         "score_best":               "\u2605 EN İYİ",
@@ -227,6 +230,9 @@ _STRINGS: dict[str, dict[str, str]] = {
         "detect_title":             "Object Detection Training",
         "detect_subtitle":          "Faster R-CNN / Mask R-CNN",
         "detect_ylabel":            "Images / sec",
+        # — Same Batch Size
+        "same_bs_suffix":           "(Same Batch Size)",
+        "same_bs_subtitle_prefix":  "Lowest common batch size —",
         # — Scorecard
         "score_title":              "GPU Scorecard",
         "score_best":               "\u2605 BEST",
@@ -306,6 +312,27 @@ def _best(rows: list[dict], filter_fn, value_key: str) -> float | None:
     return max(hits) if hits else None
 
 
+def _best_with_bs(rows: list[dict], filter_fn, value_key: str) -> tuple[float | None, int | None]:
+    """Return (best_value, batch_size_that_achieved_it)."""
+    candidates = [(r.get(value_key), r.get("batch_size"))
+                  for r in rows if filter_fn(r) and r.get(value_key) is not None]
+    if not candidates:
+        return None, None
+    best = max(candidates, key=lambda x: x[0])
+    return best[0], best[1]
+
+
+def _at_min_bs(rows: list[dict], filter_fn, value_key: str) -> tuple[float | None, int | None]:
+    """Return (value, batch_size) at the smallest successful batch size."""
+    candidates = [(r.get(value_key), r.get("batch_size"))
+                  for r in rows if filter_fn(r) and r.get(value_key) is not None
+                  and r.get("batch_size") is not None]
+    if not candidates:
+        return None, None
+    lowest = min(candidates, key=lambda x: x[1])
+    return lowest[0], lowest[1]
+
+
 def _safe(v: Any) -> Any:
     if isinstance(v, float):
         return None if (math.isnan(v) or math.isinf(v)) else round(v, 4)
@@ -319,13 +346,19 @@ def extract_training_vision(data: dict) -> Metricdict:
     out: Metricdict = {}
     for model in ("resnet50", "resnet101"):
         for prec in ("FP32", "FP16", "BF16", "FP8"):
-            v = _best(rows,
-                      lambda r, m=model, p=prec: (r.get("model") == m
-                                                   and r.get("precision") == p
-                                                   and r.get("status") == "success"),
-                      "throughput_img_per_sec")
+            filt = lambda r, m=model, p=prec: (r.get("model") == m
+                                                and r.get("precision") == p
+                                                and r.get("status") == "success")
+            v, bs = _best_with_bs(rows, filt, "throughput_img_per_sec")
             if v is not None:
                 out[f"train_vision_{model}_{prec.lower()}_img_per_sec"] = _safe(v)
+                if bs is not None:
+                    out[f"train_vision_{model}_{prec.lower()}_best_bs"] = bs
+            vm, bsm = _at_min_bs(rows, filt, "throughput_img_per_sec")
+            if vm is not None:
+                out[f"train_vision_{model}_{prec.lower()}_minbs_img_per_sec"] = _safe(vm)
+                if bsm is not None:
+                    out[f"train_vision_{model}_{prec.lower()}_minbs"] = bsm
     return out
 
 
@@ -334,13 +367,19 @@ def extract_training_nlp(data: dict) -> Metricdict:
     out: Metricdict = {}
     for model in ("bert-base", "bert-large"):
         for prec in ("FP32", "FP16", "BF16", "FP8"):
-            v = _best(rows,
-                      lambda r, m=model, p=prec: (r.get("model") == m
-                                                   and r.get("precision") == p
-                                                   and r.get("status") == "success"),
-                      "throughput_samples_per_sec")
+            filt = lambda r, m=model, p=prec: (r.get("model") == m
+                                                and r.get("precision") == p
+                                                and r.get("status") == "success")
+            v, bs = _best_with_bs(rows, filt, "throughput_samples_per_sec")
             if v is not None:
                 out[f"train_nlp_{model}_{prec.lower()}_samples_per_sec"] = _safe(v)
+                if bs is not None:
+                    out[f"train_nlp_{model}_{prec.lower()}_best_bs"] = bs
+            vm, bsm = _at_min_bs(rows, filt, "throughput_samples_per_sec")
+            if vm is not None:
+                out[f"train_nlp_{model}_{prec.lower()}_minbs_samples_per_sec"] = _safe(vm)
+                if bsm is not None:
+                    out[f"train_nlp_{model}_{prec.lower()}_minbs"] = bsm
     return out
 
 
@@ -349,13 +388,19 @@ def extract_inference_vision(data: dict) -> Metricdict:
     out: Metricdict = {}
     for model in ("resnet50", "resnet101"):
         for prec in ("FP32", "FP16", "BF16", "FP8"):
-            v = _best(rows,
-                      lambda r, m=model, p=prec: (r.get("model") == m
-                                                   and r.get("precision") == p
-                                                   and r.get("status") == "success"),
-                      "throughput_img_per_sec")
+            filt = lambda r, m=model, p=prec: (r.get("model") == m
+                                                and r.get("precision") == p
+                                                and r.get("status") == "success")
+            v, bs = _best_with_bs(rows, filt, "throughput_img_per_sec")
             if v is not None:
                 out[f"infer_vision_{model}_{prec.lower()}_img_per_sec"] = _safe(v)
+                if bs is not None:
+                    out[f"infer_vision_{model}_{prec.lower()}_best_bs"] = bs
+            vm, bsm = _at_min_bs(rows, filt, "throughput_img_per_sec")
+            if vm is not None:
+                out[f"infer_vision_{model}_{prec.lower()}_minbs_img_per_sec"] = _safe(vm)
+                if bsm is not None:
+                    out[f"infer_vision_{model}_{prec.lower()}_minbs"] = bsm
     return out
 
 
@@ -364,13 +409,19 @@ def extract_inference_nlp(data: dict) -> Metricdict:
     out: Metricdict = {}
     for model in ("bert-base", "bert-large"):
         for prec in ("FP32", "FP16", "BF16", "FP8"):
-            v = _best(rows,
-                      lambda r, m=model, p=prec: (r.get("model") == m
-                                                   and r.get("precision") == p
-                                                   and r.get("status") == "success"),
-                      "throughput_samples_per_sec")
+            filt = lambda r, m=model, p=prec: (r.get("model") == m
+                                                and r.get("precision") == p
+                                                and r.get("status") == "success")
+            v, bs = _best_with_bs(rows, filt, "throughput_samples_per_sec")
             if v is not None:
                 out[f"infer_nlp_{model}_{prec.lower()}_samples_per_sec"] = _safe(v)
+                if bs is not None:
+                    out[f"infer_nlp_{model}_{prec.lower()}_best_bs"] = bs
+            vm, bsm = _at_min_bs(rows, filt, "throughput_samples_per_sec")
+            if vm is not None:
+                out[f"infer_nlp_{model}_{prec.lower()}_minbs_samples_per_sec"] = _safe(vm)
+                if bsm is not None:
+                    out[f"infer_nlp_{model}_{prec.lower()}_minbs"] = bsm
     return out
 
 
@@ -450,14 +501,20 @@ def extract_training_detection(data: dict) -> Metricdict:
     out: Metricdict = {}
     for model in ("faster-rcnn-resnet50", "mask-rcnn-resnet50"):
         for prec in ("FP32", "FP16", "BF16"):
-            v = _best(rows,
-                      lambda r, m=model, p=prec: (r.get("model") == m
-                                                   and r.get("precision") == p
-                                                   and r.get("status") == "success"),
-                      "throughput_img_per_sec")
+            filt = lambda r, m=model, p=prec: (r.get("model") == m
+                                                and r.get("precision") == p
+                                                and r.get("status") == "success")
+            safe_model = model.replace("-", "_")
+            v, bs = _best_with_bs(rows, filt, "throughput_img_per_sec")
             if v is not None:
-                safe_model = model.replace("-", "_")
                 out[f"detect_{safe_model}_{prec.lower()}_img_per_sec"] = _safe(v)
+                if bs is not None:
+                    out[f"detect_{safe_model}_{prec.lower()}_best_bs"] = bs
+            vm, bsm = _at_min_bs(rows, filt, "throughput_img_per_sec")
+            if vm is not None:
+                out[f"detect_{safe_model}_{prec.lower()}_minbs_img_per_sec"] = _safe(vm)
+                if bsm is not None:
+                    out[f"detect_{safe_model}_{prec.lower()}_minbs"] = bsm
     return out
 
 
@@ -863,7 +920,14 @@ def _grouped_bar(ax, categories: list[str], gpu_names: list[str],
 def _horizontal_grouped_bar(ax, categories: list[str], gpu_names: list[str],
                             values_per_gpu: list[list[float]], xlabel: str,
                             subtitle: str,
-                            fmt: str = "{:.1f}"):
+                            fmt: str = "{:.1f}",
+                            annotations_per_gpu: list[list[str]] | None = None):
+    """Draw horizontal grouped bar chart.
+
+    *annotations_per_gpu*, if provided, is a list (one per GPU) of lists
+    (one per category) holding short strings (e.g. "BS=64") appended to
+    the value label on each bar.
+    """
     n_groups = len(categories)
     n_gpus = len(gpu_names)
     if n_groups == 0 or n_gpus == 0:
@@ -882,10 +946,15 @@ def _horizontal_grouped_bar(ax, categories: list[str], gpu_names: list[str],
         all_vals.extend(vals)
         bars = ax.barh(y + offset, vals, bar_h * 0.88, color=color,
                        edgecolor=BG_COLOR, linewidth=1, zorder=3, label=gname)
-        for bar, v in zip(bars, vals):
+        ann = annotations_per_gpu[gi] if annotations_per_gpu else [None] * len(vals)
+        for ci, (bar, v) in enumerate(zip(bars, vals)):
             if v > 0:
+                label = fmt.format(v)
+                a = ann[ci] if ci < len(ann) else None
+                if a:
+                    label += f"  ({a})"
                 ax.text(v + max(all_vals) * 0.01, bar.get_y() + bar.get_height() / 2,
-                        fmt.format(v), va="center", fontsize=vfs,
+                        label, va="center", fontsize=vfs,
                         color=TEXT_COLOR, fontweight="bold")
 
     ax.set_yticks(y)
@@ -895,9 +964,25 @@ def _horizontal_grouped_bar(ax, categories: list[str], gpu_names: list[str],
     ax.grid(axis="x", linestyle="--", zorder=0)
     ax.set_axisbelow(True)
     max_v = max(all_vals) if all_vals else 1
-    ax.set_xlim(0, max_v * 1.25)
+    ax.set_xlim(0, max_v * 1.30)
     ax.invert_yaxis()
     ax.legend(**_legend_kwargs(n_gpus))
+
+
+def _build_bs_annotations(d: "ComparisonData", bs_keys: list[str]) -> list[list[str]]:
+    """Build per-GPU, per-category annotation strings like 'BS=64'.
+
+    Returns a list (one per GPU) of lists (one per category) of strings.
+    If a batch-size metric is missing for a particular cell the string is empty.
+    """
+    anns: list[list[str]] = []
+    for gi in range(d.n_gpus):
+        row: list[str] = []
+        for bk in bs_keys:
+            v = d.get(bk)[gi]
+            row.append(f"BS={int(v)}" if v is not None else "")
+        anns.append(row)
+    return anns
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -905,81 +990,89 @@ def _horizontal_grouped_bar(ax, categories: list[str], gpu_names: list[str],
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def chart_training_vision(d: ComparisonData, out: Path):
-    cats, keys = [], []
+    cats, keys, bs_keys = [], [], []
     for model in ["resnet50", "resnet101"]:
         for prec in ["fp32", "fp16", "bf16"]:
             mid = f"train_vision_{model}_{prec}_img_per_sec"
             if any(v is not None for v in d.get(mid)):
                 cats.append(f"{model.upper()} {prec.upper()}")
                 keys.append(mid)
+                bs_keys.append(f"train_vision_{model}_{prec}_best_bs")
     if not cats:
         return
     vals = [[d.get(m)[gi] for m in keys] for gi in range(d.n_gpus)]
+    anns = _build_bs_annotations(d, bs_keys)
     fig, ax = _standard_fig(S("train_vision_title"), S("higher_better"),
                             ACCENT_GREEN, d.n_gpus, len(cats),
                             height_ratio=max(1.0, len(cats) * 0.18))
     _horizontal_grouped_bar(ax, cats, d.gpu_names(), vals, S("train_vision_ylabel"),
-                 S("train_vision_subtitle"))
+                 S("train_vision_subtitle"), annotations_per_gpu=anns)
     fig.tight_layout(rect=[0, 0.02, 1, 0.92])
     _save(fig, out / "cmp_training_vision.png")
 
 
 def chart_training_nlp(d: ComparisonData, out: Path):
-    cats, keys = [], []
+    cats, keys, bs_keys = [], [], []
     for model in ["bert-base", "bert-large"]:
         for prec in ["fp32", "fp16", "bf16"]:
             mid = f"train_nlp_{model}_{prec}_samples_per_sec"
             if any(v is not None for v in d.get(mid)):
                 cats.append(f"{model.upper()} {prec.upper()}")
                 keys.append(mid)
+                bs_keys.append(f"train_nlp_{model}_{prec}_best_bs")
     if not cats:
         return
     vals = [[d.get(m)[gi] for m in keys] for gi in range(d.n_gpus)]
+    anns = _build_bs_annotations(d, bs_keys)
     fig, ax = _standard_fig(S("train_nlp_title"), S("higher_better"),
                             ACCENT_GREEN, d.n_gpus, len(cats),
                             height_ratio=max(1.0, len(cats) * 0.18))
     _horizontal_grouped_bar(ax, cats, d.gpu_names(), vals, S("train_nlp_ylabel"),
-                 S("train_nlp_subtitle"))
+                 S("train_nlp_subtitle"), annotations_per_gpu=anns)
     fig.tight_layout(rect=[0, 0.02, 1, 0.92])
     _save(fig, out / "cmp_training_nlp.png")
 
 
 def chart_inference_vision(d: ComparisonData, out: Path):
-    cats, keys = [], []
+    cats, keys, bs_keys = [], [], []
     for model in ["resnet50", "resnet101"]:
         for prec in ["fp32", "fp16", "bf16"]:
             mid = f"infer_vision_{model}_{prec}_img_per_sec"
             if any(v is not None for v in d.get(mid)):
                 cats.append(f"{model.upper()} {prec.upper()}")
                 keys.append(mid)
+                bs_keys.append(f"infer_vision_{model}_{prec}_best_bs")
     if not cats:
         return
     vals = [[d.get(m)[gi] for m in keys] for gi in range(d.n_gpus)]
+    anns = _build_bs_annotations(d, bs_keys)
     fig, ax = _standard_fig(S("infer_vision_title"), S("higher_better"),
                             ACCENT_GREEN, d.n_gpus, len(cats),
                             height_ratio=max(1.0, len(cats) * 0.18))
     _horizontal_grouped_bar(ax, cats, d.gpu_names(), vals, S("infer_vision_ylabel"),
-                 S("infer_vision_subtitle"))
+                 S("infer_vision_subtitle"), annotations_per_gpu=anns)
     fig.tight_layout(rect=[0, 0.02, 1, 0.92])
     _save(fig, out / "cmp_inference_vision.png")
 
 
 def chart_inference_nlp(d: ComparisonData, out: Path):
-    cats, keys = [], []
+    cats, keys, bs_keys = [], [], []
     for model in ["bert-base", "bert-large"]:
         for prec in ["fp32", "fp16", "bf16"]:
             mid = f"infer_nlp_{model}_{prec}_samples_per_sec"
             if any(v is not None for v in d.get(mid)):
                 cats.append(f"{model.upper()} {prec.upper()}")
                 keys.append(mid)
+                bs_keys.append(f"infer_nlp_{model}_{prec}_best_bs")
     if not cats:
         return
     vals = [[d.get(m)[gi] for m in keys] for gi in range(d.n_gpus)]
+    anns = _build_bs_annotations(d, bs_keys)
     fig, ax = _standard_fig(S("infer_nlp_title"), S("higher_better"),
                             ACCENT_GREEN, d.n_gpus, len(cats),
                             height_ratio=max(1.0, len(cats) * 0.18))
     _horizontal_grouped_bar(ax, cats, d.gpu_names(), vals, S("infer_nlp_ylabel"),
-                 S("infer_nlp_subtitle"))
+                 S("infer_nlp_subtitle"), annotations_per_gpu=anns)
     fig.tight_layout(rect=[0, 0.02, 1, 0.92])
     _save(fig, out / "cmp_inference_nlp.png")
 
@@ -1110,7 +1203,7 @@ def chart_fundamentals(d: ComparisonData, out: Path):
 
 
 def chart_detection(d: ComparisonData, out: Path):
-    cats, keys = [], []
+    cats, keys, bs_keys = [], [], []
     for model in ["faster_rcnn_resnet50", "mask_rcnn_resnet50"]:
         for prec in ["fp32", "fp16", "bf16"]:
             mid = f"detect_{model}_{prec}_img_per_sec"
@@ -1119,16 +1212,150 @@ def chart_detection(d: ComparisonData, out: Path):
                             .replace("mask_rcnn_resnet50", "Mask R-CNN")
                 cats.append(f"{nice}\n{prec.upper()}")
                 keys.append(mid)
+                bs_keys.append(f"detect_{model}_{prec}_best_bs")
     if not cats:
         return
     vals = [[d.get(m)[gi] for m in keys] for gi in range(d.n_gpus)]
+    anns = _build_bs_annotations(d, bs_keys)
     fig, ax = _standard_fig(S("detect_title"), S("higher_better"),
                             ACCENT_GREEN, d.n_gpus, len(cats),
                             height_ratio=max(1.0, len(cats) * 0.18))
     _horizontal_grouped_bar(ax, cats, d.gpu_names(), vals, S("detect_ylabel"),
-                 S("detect_subtitle"), fmt="{:.1f}")
+                 S("detect_subtitle"), fmt="{:.1f}", annotations_per_gpu=anns)
     fig.tight_layout(rect=[0, 0.03, 1, 0.92])
     _save(fig, out / "cmp_detection.png")
+
+
+# ── Same Batch Size Charts ───────────────────────────────────────────────────
+
+def _same_bs_chart(d: ComparisonData, out: Path,
+                   models: list[str], precisions: list[str],
+                   tput_prefix: str, tput_suffix: str,
+                   minbs_prefix: str, minbs_tput_suffix: str,
+                   minbs_bs_suffix: str,
+                   title_key: str, ylabel_key: str,
+                   subtitle_key: str, filename: str):
+    """Generic helper for same-batch-size comparison charts.
+
+    For each model × precision, looks up the ``*_minbs`` throughput metric
+    (measured at the smallest tested batch size) and the ``*_minbs`` batch
+    size value.  Only categories where **all** GPUs share the same min-BS
+    value are included; those where GPUs diverge are skipped to keep the
+    comparison fair.
+    """
+    cats: list[str] = []
+    val_keys: list[str] = []
+    bs_values: list[int] = []
+
+    for model in models:
+        for prec in precisions:
+            tput_mid = f"{minbs_prefix}{model}_{prec}{minbs_tput_suffix}"
+            bs_mid = f"{minbs_prefix}{model}_{prec}{minbs_bs_suffix}"
+            tput_vals = d.get(tput_mid)
+            bs_vals = d.get(bs_mid)
+            # Skip if no GPU has this metric
+            if not any(v is not None for v in tput_vals):
+                continue
+            # Determine the common min BS across all GPUs that have data
+            gpu_bss = [int(b) for b in bs_vals if b is not None]
+            if not gpu_bss:
+                continue
+            # All GPUs should start from the same auto-scale base, so
+            # the min-BS should be identical.  Use the minimum observed.
+            common_bs = min(gpu_bss)
+            nice_model = model.replace("_", "-").upper() if "_" not in model else \
+                         model.replace("faster_rcnn_resnet50", "Faster R-CNN") \
+                              .replace("mask_rcnn_resnet50", "Mask R-CNN") \
+                              .replace("resnet", "RESNET").replace("bert-", "BERT-")
+            # Fallback: just uppercase
+            if nice_model == model:
+                nice_model = model.upper()
+            cats.append(f"{nice_model} {prec.upper()}")
+            val_keys.append(tput_mid)
+            bs_values.append(common_bs)
+
+    if not cats:
+        return
+
+    vals = [[d.get(m)[gi] for m in val_keys] for gi in range(d.n_gpus)]
+
+    # Build annotation showing common BS
+    anns: list[list[str]] = []
+    for gi in range(d.n_gpus):
+        row: list[str] = []
+        for ci, bk in enumerate(val_keys):
+            v = vals[gi][ci]
+            row.append(f"BS={bs_values[ci]}" if v is not None else "")
+        anns.append(row)
+
+    title = f"{S(title_key)} {S('same_bs_suffix')}"
+    fig, ax = _standard_fig(title, S("higher_better"),
+                            ACCENT_BLUE, d.n_gpus, len(cats),
+                            height_ratio=max(1.0, len(cats) * 0.18))
+    _horizontal_grouped_bar(ax, cats, d.gpu_names(), vals, S(ylabel_key),
+                 S(subtitle_key), annotations_per_gpu=anns)
+    fig.tight_layout(rect=[0, 0.02, 1, 0.92])
+    _save(fig, out / filename)
+
+
+def chart_training_vision_same_bs(d: ComparisonData, out: Path):
+    _same_bs_chart(d, out,
+                   models=["resnet50", "resnet101"],
+                   precisions=["fp32", "fp16", "bf16"],
+                   tput_prefix="train_vision_", tput_suffix="_img_per_sec",
+                   minbs_prefix="train_vision_", minbs_tput_suffix="_minbs_img_per_sec",
+                   minbs_bs_suffix="_minbs",
+                   title_key="train_vision_title", ylabel_key="train_vision_ylabel",
+                   subtitle_key="train_vision_subtitle",
+                   filename="cmp_training_vision_same_bs.png")
+
+
+def chart_training_nlp_same_bs(d: ComparisonData, out: Path):
+    _same_bs_chart(d, out,
+                   models=["bert-base", "bert-large"],
+                   precisions=["fp32", "fp16", "bf16"],
+                   tput_prefix="train_nlp_", tput_suffix="_samples_per_sec",
+                   minbs_prefix="train_nlp_", minbs_tput_suffix="_minbs_samples_per_sec",
+                   minbs_bs_suffix="_minbs",
+                   title_key="train_nlp_title", ylabel_key="train_nlp_ylabel",
+                   subtitle_key="train_nlp_subtitle",
+                   filename="cmp_training_nlp_same_bs.png")
+
+
+def chart_inference_vision_same_bs(d: ComparisonData, out: Path):
+    _same_bs_chart(d, out,
+                   models=["resnet50", "resnet101"],
+                   precisions=["fp32", "fp16", "bf16"],
+                   tput_prefix="infer_vision_", tput_suffix="_img_per_sec",
+                   minbs_prefix="infer_vision_", minbs_tput_suffix="_minbs_img_per_sec",
+                   minbs_bs_suffix="_minbs",
+                   title_key="infer_vision_title", ylabel_key="infer_vision_ylabel",
+                   subtitle_key="infer_vision_subtitle",
+                   filename="cmp_inference_vision_same_bs.png")
+
+
+def chart_inference_nlp_same_bs(d: ComparisonData, out: Path):
+    _same_bs_chart(d, out,
+                   models=["bert-base", "bert-large"],
+                   precisions=["fp32", "fp16", "bf16"],
+                   tput_prefix="infer_nlp_", tput_suffix="_samples_per_sec",
+                   minbs_prefix="infer_nlp_", minbs_tput_suffix="_minbs_samples_per_sec",
+                   minbs_bs_suffix="_minbs",
+                   title_key="infer_nlp_title", ylabel_key="infer_nlp_ylabel",
+                   subtitle_key="infer_nlp_subtitle",
+                   filename="cmp_inference_nlp_same_bs.png")
+
+
+def chart_detection_same_bs(d: ComparisonData, out: Path):
+    _same_bs_chart(d, out,
+                   models=["faster_rcnn_resnet50", "mask_rcnn_resnet50"],
+                   precisions=["fp32", "fp16", "bf16"],
+                   tput_prefix="detect_", tput_suffix="_img_per_sec",
+                   minbs_prefix="detect_", minbs_tput_suffix="_minbs_img_per_sec",
+                   minbs_bs_suffix="_minbs",
+                   title_key="detect_title", ylabel_key="detect_ylabel",
+                   subtitle_key="detect_subtitle",
+                   filename="cmp_detection_same_bs.png")
 
 
 # ── Power Efficiency Charts ──────────────────────────────────────────────────
@@ -1778,10 +2005,15 @@ def _run_charts(json_path: Path, output_dir: Path):
         chart_training_nlp,
         chart_inference_vision,
         chart_inference_nlp,
+        chart_training_vision_same_bs,
+        chart_training_nlp_same_bs,
+        chart_inference_vision_same_bs,
+        chart_inference_nlp_same_bs,
         chart_llm,
         chart_gemm,
         chart_fundamentals,
         chart_detection,
+        chart_detection_same_bs,
         chart_power_efficiency,
         chart_relative_performance,
         chart_cnn_vs_transformer,
