@@ -363,6 +363,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="Multi-GPU Training Scaling Benchmark")
     add_common_args(parser)
+    # Override: bench 10 warms up all GPUs by default (second GPU is cold
+    # after single-GPU benchmarks 1-9)
+    parser.set_defaults(skip_thermal_warmup=False)
     args = parser.parse_args()
 
     sep = "=" * 72
@@ -381,9 +384,6 @@ def main() -> None:
 
     print(f"\nAvailable GPUs: {n_gpus_available}")
 
-    if not args.skip_thermal_warmup:
-        gpu_thermal_warmup(torch.device(f"cuda:{args.device}"))
-
     # Check whether all GPUs are the same model
     can_multi = False
     if n_gpus_available >= 2:
@@ -401,6 +401,26 @@ def main() -> None:
     else:
         print("  NOTE: Only 1 GPU — single-GPU baselines only.")
         print("        Multi-GPU scaling requires ≥ 2 GPUs.\n")
+
+    # Warm up ALL GPUs in parallel — the runner's initial warmup only uses
+    # GPU 0, so the second GPU will have cooled down by the time bench 10 runs.
+    if not args.skip_thermal_warmup:
+        if can_multi:
+            import threading as _th
+            print(f"  Warming up {n_gpus_available} GPUs in parallel (60s)...",
+                  flush=True)
+            threads = [
+                _th.Thread(target=gpu_thermal_warmup,
+                           args=(torch.device(f"cuda:{i}"),))
+                for i in range(n_gpus_available)
+            ]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join()
+            print("  All GPUs warm.\n")
+        else:
+            gpu_thermal_warmup(torch.device(f"cuda:{args.device}"))
 
     all_rows: list[dict] = []
 
