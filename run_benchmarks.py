@@ -211,20 +211,34 @@ def main():
 
     check_gpu()
 
-    # ── Single GPU thermal warmup before all benchmarks ───────────
-    # Bring GPU to a stable thermal/clock state once, then skip
+    # ── GPU thermal warmup before all benchmarks ─────────────────
+    # Bring all GPUs to a stable thermal/clock state once, then skip
     # per-benchmark warmups to save time and reduce variance.
-    print("Warming up GPU to stabilise clocks/thermals (60s)...")
-    device = torch.device("cuda:0")
-    a = torch.randn(4096, 4096, device=device, dtype=torch.float32)
-    b = torch.randn(4096, 4096, device=device, dtype=torch.float32)
-    end_time = time.perf_counter() + 60
-    while time.perf_counter() < end_time:
-        torch.mm(a, b)
-    torch.cuda.synchronize()
-    del a, b
+    n_gpus = torch.cuda.device_count()
+    print(f"Warming up {n_gpus} GPU(s) to stabilise clocks/thermals (60s)...")
+
+    def _warmup_gpu(dev_id: int) -> None:
+        dev = torch.device(f"cuda:{dev_id}")
+        a = torch.randn(4096, 4096, device=dev, dtype=torch.float32)
+        b = torch.randn(4096, 4096, device=dev, dtype=torch.float32)
+        end_t = time.perf_counter() + 60
+        while time.perf_counter() < end_t:
+            torch.mm(a, b)
+        torch.cuda.synchronize(dev)
+        del a, b
+
+    import threading as _th
+    if n_gpus > 1:
+        threads = [_th.Thread(target=_warmup_gpu, args=(i,)) for i in range(n_gpus)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+    else:
+        _warmup_gpu(0)
+
     torch.cuda.empty_cache()
-    print("GPU warm-up complete.\n")
+    print(f"GPU warm-up complete ({n_gpus} device(s)).\n")
 
     total = len(BENCHMARKS)
     passed = 0

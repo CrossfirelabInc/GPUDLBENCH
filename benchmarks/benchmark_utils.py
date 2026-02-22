@@ -180,17 +180,35 @@ def gpu_thermal_warmup(device: torch.device, duration_sec: float = 60) -> None:
     Modern GPUs start at a low power state and ramp up to boost clocks once a
     sustained workload is detected.  Running this before any timed measurements
     eliminates the variance caused by cold-start clock frequencies.
+
+    If *device* is ``None``, warms up **all** visible CUDA devices in parallel.
     """
-    logger.info("Warming up GPU to stabilise clocks/thermals (%ds)...", int(duration_sec))
+    if device is None:
+        # Warm up all GPUs in parallel
+        n = torch.cuda.device_count()
+        logger.info("Warming up %d GPU(s) to stabilise clocks/thermals (%ds)...", n, int(duration_sec))
+        threads: list[threading.Thread] = []
+        for i in range(n):
+            t = threading.Thread(
+                target=gpu_thermal_warmup,
+                args=(torch.device(f"cuda:{i}"), duration_sec),
+            )
+            threads.append(t)
+            t.start()
+        for t in threads:
+            t.join()
+        return
+
+    logger.info("Warming up %s to stabilise clocks/thermals (%ds)...", device, int(duration_sec))
     a = torch.randn(4096, 4096, device=device, dtype=torch.float32)
     b = torch.randn(4096, 4096, device=device, dtype=torch.float32)
     end_time = time.perf_counter() + duration_sec
     while time.perf_counter() < end_time:
         torch.mm(a, b)
-    torch.cuda.synchronize()
+    torch.cuda.synchronize(device)
     del a, b
     torch.cuda.empty_cache()
-    logger.info("GPU warm-up complete.")
+    logger.info("GPU warm-up complete (%s).", device)
 
 
 # ── Batch-size auto-scaling ───────────────────────────────────────────────────
