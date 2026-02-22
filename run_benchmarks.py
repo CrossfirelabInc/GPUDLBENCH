@@ -20,6 +20,8 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 
+import torch
+
 
 class TeeWriter:
     """Duplicate writes to both a terminal stream and a log file.
@@ -209,6 +211,21 @@ def main():
 
     check_gpu()
 
+    # ── Single GPU thermal warmup before all benchmarks ───────────
+    # Bring GPU to a stable thermal/clock state once, then skip
+    # per-benchmark warmups to save time and reduce variance.
+    print("Warming up GPU to stabilise clocks/thermals (60s)...")
+    device = torch.device("cuda:0")
+    a = torch.randn(4096, 4096, device=device, dtype=torch.float32)
+    b = torch.randn(4096, 4096, device=device, dtype=torch.float32)
+    end_time = time.perf_counter() + 60
+    while time.perf_counter() < end_time:
+        torch.mm(a, b)
+    torch.cuda.synchronize()
+    del a, b
+    torch.cuda.empty_cache()
+    print("GPU warm-up complete.\n")
+
     total = len(BENCHMARKS)
     passed = 0
     failed = 0
@@ -224,7 +241,7 @@ def main():
             continue
 
         # Pass --model-set to the LLM benchmark (benchmark 5)
-        extra = []
+        extra = ["--skip-thermal-warmup"]
         if num == 5:
             extra.extend(["--model-set", args.model_set])
         if args.demo:

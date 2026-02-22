@@ -181,7 +181,8 @@ def main() -> None:
     print(f"Warmup / runs: {GEMM_WARMUP} / {GEMM_REPEATS}")
 
     # Stabilise GPU clocks/thermals before any timed measurements
-    gpu_thermal_warmup(device)
+    if not args.skip_thermal_warmup:
+        gpu_thermal_warmup(device)
 
     all_rows: list[dict] = []
     peak: dict[str, float] = {}

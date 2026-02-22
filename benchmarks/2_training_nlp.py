@@ -190,7 +190,8 @@ def main() -> None:
     print()
 
     # Stabilise GPU clocks/thermals before any timed measurements
-    gpu_thermal_warmup(device)
+    if not args.skip_thermal_warmup:
+        gpu_thermal_warmup(device)
 
     monitor = None
     if not args.no_monitor:

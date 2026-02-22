@@ -267,7 +267,8 @@ def main() -> None:
     # ── GPU thermal warmup ─────────────────────────────────────────────
     # Run a dummy matmul workload to bring GPU clocks and temperature to
     # a stable operating point before any measurements.
-    gpu_thermal_warmup(device)
+    if not args.skip_thermal_warmup:
+        gpu_thermal_warmup(device)
 
     monitor = None
     if not args.no_monitor:

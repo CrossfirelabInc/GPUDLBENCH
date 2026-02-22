@@ -408,7 +408,8 @@ def main() -> None:
     set_reproducibility(args.seed)
 
     # Stabilise GPU clocks/thermals before any timed measurements
-    gpu_thermal_warmup(device)
+    if not args.skip_thermal_warmup:
+        gpu_thermal_warmup(device)
 
     all_rows: list[dict] = []
 

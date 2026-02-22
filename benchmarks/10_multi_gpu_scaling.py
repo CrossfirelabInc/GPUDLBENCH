@@ -229,7 +229,8 @@ def main() -> None:
     print(f"\nAvailable GPUs: {n_gpus_available}")
 
     # Stabilise GPU clocks/thermals before any timed measurements
-    gpu_thermal_warmup(torch.device(f"cuda:{args.device}"))
+    if not args.skip_thermal_warmup:
+        gpu_thermal_warmup(torch.device(f"cuda:{args.device}"))
 
     # Check whether all GPUs are identical (same model name and VRAM)
     gpus_identical = True
