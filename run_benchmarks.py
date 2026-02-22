@@ -281,14 +281,41 @@ def main():
                             print(f"Power limits: {', '.join(f'GPU {l[0]}={l[1]:.0f}W' for l in limits)}")
                             print(f"  → Equalising all GPUs to {min_limit:.0f}W "
                                   f"for fair comparison")
+                            # Try without sudo first, fall back to sudo on Linux
+                            all_ok = True
+                            use_sudo = False
                             for idx, cur, _ in limits:
                                 if cur != min_limit:
-                                    subprocess.run(
+                                    pl_r = subprocess.run(
                                         ["nvidia-smi", "-i", str(idx),
                                          "-pl", str(min_limit)],
-                                        capture_output=True, timeout=5,
+                                        capture_output=True, text=True, timeout=5,
                                     )
-                            print(f"  Power limits set to {min_limit:.0f}W.\n")
+                                    if pl_r.returncode != 0:
+                                        all_ok = False
+                                        break
+                            if not all_ok and sys.platform != "win32":
+                                # Retry with sudo on Linux
+                                all_ok = True
+                                use_sudo = True
+                                for idx, cur, _ in limits:
+                                    if cur != min_limit:
+                                        pl_r = subprocess.run(
+                                            ["sudo", "nvidia-smi", "-i", str(idx),
+                                             "-pl", str(min_limit)],
+                                            capture_output=True, text=True, timeout=15,
+                                        )
+                                        if pl_r.returncode != 0:
+                                            all_ok = False
+                            if all_ok:
+                                print(f"  Power limits set to {min_limit:.0f}W"
+                                      f"{' (via sudo)' if use_sudo else ''}.\n")
+                            else:
+                                print(f"\n  WARNING: Failed to set power limits.")
+                                print(f"  nvidia-smi -pl requires root/admin privileges.")
+                                print(f"  → Run with: sudo python run_benchmarks.py ...")
+                                print(f"  Continuing with current (unequal) power limits.\n")
+                                original_power_limits.clear()  # nothing to restore
                         else:
                             print(f"Power limits already equal: {limits[0][1]:.0f}W\n")
             except Exception as e:
@@ -428,14 +455,25 @@ def main():
     # ── Restore original power limits if they were changed ─────────
     if original_power_limits:
         try:
+            restored = True
             for idx, orig_w in original_power_limits.items():
-                subprocess.run(
-                    ["nvidia-smi", "-i", str(idx),
-                     "-pl", str(orig_w)],
+                # Try direct first, then sudo on Linux
+                r = subprocess.run(
+                    ["nvidia-smi", "-i", str(idx), "-pl", str(orig_w)],
                     capture_output=True, timeout=5,
                 )
-            print("Power limits restored to original values: "
-                  f"{', '.join(f'GPU {i}={w:.0f}W' for i, w in original_power_limits.items())}")
+                if r.returncode != 0 and sys.platform != "win32":
+                    r = subprocess.run(
+                        ["sudo", "nvidia-smi", "-i", str(idx), "-pl", str(orig_w)],
+                        capture_output=True, timeout=15,
+                    )
+                if r.returncode != 0:
+                    restored = False
+            if restored:
+                print("Power limits restored to original values: "
+                      f"{', '.join(f'GPU {i}={w:.0f}W' for i, w in original_power_limits.items())}")
+            else:
+                print("  NOTE: Could not restore all original power limits")
         except Exception:
             print("  NOTE: Could not restore original power limits")
 
