@@ -23,6 +23,7 @@ Results saved to:
 import argparse
 import sys
 import time
+import warnings
 from pathlib import Path
 
 import torch
@@ -78,7 +79,8 @@ def _build_bert_base() -> nn.Module:
 
 def _build_llama() -> nn.Module:
     cfg = LlamaConfig(**MULTIGPU_LLM_CONFIG)
-    return LlamaForCausalLM(cfg)
+    model = LlamaForCausalLM(cfg)
+    return model.half()  # FP16 to fit in VRAM for training
 
 
 # ──────────────────────────── benchmark core ──────────────────────────────────
@@ -115,25 +117,27 @@ def _bench_training(
     print(f"  [{n_gpu} GPU{'s' if n_gpu > 1 else ''}]  {model_name} TRAINING  "
           f"batch={total_batch} ({batch_per_gpu}/GPU)...", end=" ", flush=True)
 
-    # Warmup
-    for _ in range(warmup):
-        optimizer.zero_grad(set_to_none=True)
-        loss = compute_loss_fn(model, inputs)
-        loss.backward()
-        optimizer.step()
-    _sync_all(device_ids)
+    # Warmup (suppress DataParallel scalar-gather warning)
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", message=".*gather along dimension 0.*")
+        for _ in range(warmup):
+            optimizer.zero_grad(set_to_none=True)
+            loss = compute_loss_fn(model, inputs)
+            loss.backward()
+            optimizer.step()
+        _sync_all(device_ids)
 
-    # Benchmark
-    times: list[float] = []
-    for _ in range(iterations):
-        _sync_all(device_ids)
-        t0 = time.perf_counter()
-        optimizer.zero_grad(set_to_none=True)
-        loss = compute_loss_fn(model, inputs)
-        loss.backward()
-        optimizer.step()
-        _sync_all(device_ids)
-        times.append(time.perf_counter() - t0)
+        # Benchmark
+        times: list[float] = []
+        for _ in range(iterations):
+            _sync_all(device_ids)
+            t0 = time.perf_counter()
+            optimizer.zero_grad(set_to_none=True)
+            loss = compute_loss_fn(model, inputs)
+            loss.backward()
+            optimizer.step()
+            _sync_all(device_ids)
+            times.append(time.perf_counter() - t0)
 
     times.sort()
     med_t = times[len(times) // 2]
@@ -230,28 +234,30 @@ def _bench_llm_generation(
 
     with torch.no_grad():
         # Warmup
-        for _ in range(warmup):
-            raw_model.generate(
-                input_ids=input_ids,
-                attention_mask=attention_mask,
-                max_new_tokens=gen_tokens,
-                do_sample=False,
-            )
-        _sync_all(device_ids)
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", message=".*pad_token_id.*")
+            for _ in range(warmup):
+                raw_model.generate(
+                    input_ids=input_ids,
+                    attention_mask=attention_mask,
+                    max_new_tokens=gen_tokens,
+                    do_sample=False,
+                )
+            _sync_all(device_ids)
 
-        # Benchmark
-        times: list[float] = []
-        for _ in range(iterations):
-            _sync_all(device_ids)
-            t0 = time.perf_counter()
-            raw_model.generate(
-                input_ids=input_ids,
-                attention_mask=attention_mask,
-                max_new_tokens=gen_tokens,
-                do_sample=False,
-            )
-            _sync_all(device_ids)
-            times.append(time.perf_counter() - t0)
+            # Benchmark
+            times: list[float] = []
+            for _ in range(iterations):
+                _sync_all(device_ids)
+                t0 = time.perf_counter()
+                raw_model.generate(
+                    input_ids=input_ids,
+                    attention_mask=attention_mask,
+                    max_new_tokens=gen_tokens,
+                    do_sample=False,
+                )
+                _sync_all(device_ids)
+                times.append(time.perf_counter() - t0)
 
     times.sort()
     med_t = times[len(times) // 2]
@@ -381,8 +387,8 @@ def main() -> None:
             "bpg":          MULTIGPU_NLP_BATCH_PER_GPU,
         },
         {
-            "key":          "llama-3b",
-            "label":        "Llama-3B",
+            "key":          "llama-1b",
+            "label":        "Llama-1B",
             "factory":      _build_llama,
             "inputs_train": _llm_inputs,
             "inputs_infer": _llm_inputs,
@@ -477,8 +483,7 @@ def main() -> None:
                 try:
                     tput_gen = _bench_llm_generation(
                         label, spec["factory"], device_ids,
-                        spec["bpg"], max(2, MULTIGPU_WARMUP // 2),
-                        max(10, MULTIGPU_ITERATIONS // 2),
+                        spec["bpg"], 2, 10,
                     )
                     if n_gpu == 1:
                         baseline[key]["generation"] = tput_gen
