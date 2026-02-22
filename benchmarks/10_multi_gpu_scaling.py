@@ -161,7 +161,8 @@ def _ddp_train_worker(rank, world_size, port, model_key, batch_per_gpu,
     """Spawned DDP training worker — one process per GPU."""
     os.environ["MASTER_ADDR"] = "127.0.0.1"
     os.environ["MASTER_PORT"] = str(port)
-    dist.init_process_group("nccl", rank=rank, world_size=world_size)
+    dist.init_process_group("nccl", rank=rank, world_size=world_size,
+                            device_id=torch.device(f"cuda:{rank}"))
     torch.cuda.set_device(rank)
 
     # Reproduce the same environment as the main process
