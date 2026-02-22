@@ -213,76 +213,112 @@ def main():
 
     check_gpu()
 
-    # ── Multi-GPU setup: pick non-display GPU & equalise power limits ──
+    # ── Multi-GPU setup ──────────────────────────────────────────────
     n_gpus = torch.cuda.device_count()
     bench_device = 0  # default: GPU 0 for single-GPU benchmarks 1-9
+    identical_gpus = False
     original_power_limits: dict[int, float] = {}  # gpu_idx -> original W
 
     if n_gpus >= 2:
-        # --- Detect which GPU is driving the display ---
-        display_gpu = None
-        try:
-            r = subprocess.run(
-                ["nvidia-smi",
-                 "--query-gpu=index,display_active",
-                 "--format=csv,noheader,nounits"],
-                capture_output=True, text=True, timeout=5,
-            )
-            if r.returncode == 0:
-                for line in r.stdout.strip().splitlines():
-                    parts = [p.strip() for p in line.split(",")]
-                    if len(parts) == 2 and parts[1].lower().startswith("enabled"):
-                        display_gpu = int(parts[0])
-                        break
-        except Exception:
-            pass
+        gpu_names = [torch.cuda.get_device_name(i) for i in range(n_gpus)]
+        identical_gpus = len(set(gpu_names)) == 1
 
-        if display_gpu is not None:
-            # Use the GPU that is NOT rendering the screen
-            bench_device = 1 if display_gpu == 0 else 0
-            print(f"Multi-GPU detected: GPU {display_gpu} is driving the display")
-            print(f"  → Using GPU {bench_device} for single-GPU benchmarks 1-9\n")
+        print(f"Detected {n_gpus} GPUs:")
+        for i in range(n_gpus):
+            vram = torch.cuda.get_device_properties(i).total_memory / 1024**3
+            print(f"  GPU {i}: {gpu_names[i]}  ({vram:.1f} GiB)")
+        print()
+
+        if identical_gpus:
+            # --- Identical GPUs: auto-select non-display GPU ---
+            display_gpu = None
+            try:
+                r = subprocess.run(
+                    ["nvidia-smi",
+                     "--query-gpu=index,display_active",
+                     "--format=csv,noheader,nounits"],
+                    capture_output=True, text=True, timeout=5,
+                )
+                if r.returncode == 0:
+                    for line in r.stdout.strip().splitlines():
+                        parts = [p.strip() for p in line.split(",")]
+                        if len(parts) == 2 and parts[1].lower().startswith("enabled"):
+                            display_gpu = int(parts[0])
+                            break
+            except Exception:
+                pass
+
+            if display_gpu is not None:
+                bench_device = 1 if display_gpu == 0 else 0
+                print(f"Identical GPUs — GPU {display_gpu} is driving the display")
+                print(f"  → Using GPU {bench_device} for single-GPU benchmarks 1-9\n")
+            else:
+                print("Identical GPUs — could not determine display GPU "
+                      "— defaulting to GPU 0\n")
+
+            # --- Equalise power limits across identical GPUs ---
+            try:
+                r = subprocess.run(
+                    ["nvidia-smi",
+                     "--query-gpu=index,power.limit,power.default_limit",
+                     "--format=csv,noheader,nounits"],
+                    capture_output=True, text=True, timeout=5,
+                )
+                if r.returncode == 0:
+                    limits: list[tuple[int, float, float]] = []
+                    for line in r.stdout.strip().splitlines():
+                        parts = [p.strip() for p in line.split(",")]
+                        if len(parts) >= 2:
+                            idx = int(parts[0])
+                            cur = float(parts[1])
+                            limits.append((idx, cur, cur))
+                            original_power_limits[idx] = cur
+
+                    if len(limits) >= 2:
+                        min_limit = min(l[1] for l in limits)
+                        needs_change = any(l[1] != min_limit for l in limits)
+                        if needs_change:
+                            print(f"Power limits: {', '.join(f'GPU {l[0]}={l[1]:.0f}W' for l in limits)}")
+                            print(f"  → Equalising all GPUs to {min_limit:.0f}W "
+                                  f"for fair comparison")
+                            for idx, cur, _ in limits:
+                                if cur != min_limit:
+                                    subprocess.run(
+                                        ["nvidia-smi", "-i", str(idx),
+                                         "-pl", str(min_limit)],
+                                        capture_output=True, timeout=5,
+                                    )
+                            print(f"  Power limits set to {min_limit:.0f}W.\n")
+                        else:
+                            print(f"Power limits already equal: {limits[0][1]:.0f}W\n")
+            except Exception as e:
+                print(f"  NOTE: Could not equalise power limits: {e}\n")
+
         else:
-            print("Multi-GPU detected: could not determine display GPU "
-                  "— defaulting to GPU 0\n")
+            # --- Different GPUs: let user choose which one to benchmark ---
+            print("GPUs are DIFFERENT — this will be a single-GPU benchmark.")
+            print("Multi-GPU scaling test (bench 10) will be skipped.\n")
+            skip_set.add(10)
 
-        # --- Equalise power limits across GPUs ---
-        try:
-            r = subprocess.run(
-                ["nvidia-smi",
-                 "--query-gpu=index,power.limit,power.default_limit",
-                 "--format=csv,noheader,nounits"],
-                capture_output=True, text=True, timeout=5,
-            )
-            if r.returncode == 0:
-                limits: list[tuple[int, float, float]] = []
-                for line in r.stdout.strip().splitlines():
-                    parts = [p.strip() for p in line.split(",")]
-                    if len(parts) >= 2:
-                        idx = int(parts[0])
-                        cur = float(parts[1])
-                        limits.append((idx, cur, cur))
-                        original_power_limits[idx] = cur
+            while True:
+                try:
+                    choice = input(f"Which GPU to benchmark? [0-{n_gpus - 1}] (default: 0): ").strip()
+                    if choice == "":
+                        bench_device = 0
+                        break
+                    chosen = int(choice)
+                    if 0 <= chosen < n_gpus:
+                        bench_device = chosen
+                        break
+                    print(f"  Please enter a number between 0 and {n_gpus - 1}.")
+                except ValueError:
+                    print(f"  Please enter a number between 0 and {n_gpus - 1}.")
+                except (KeyboardInterrupt, EOFError):
+                    print("\nUsing GPU 0.")
+                    bench_device = 0
+                    break
 
-                if len(limits) >= 2:
-                    min_limit = min(l[1] for l in limits)
-                    needs_change = any(l[1] != min_limit for l in limits)
-                    if needs_change:
-                        print(f"Power limits: {', '.join(f'GPU {l[0]}={l[1]:.0f}W' for l in limits)}")
-                        print(f"  → Equalising all GPUs to {min_limit:.0f}W "
-                              f"for fair comparison")
-                        for idx, cur, _ in limits:
-                            if cur != min_limit:
-                                subprocess.run(
-                                    ["nvidia-smi", "-i", str(idx),
-                                     "-pl", str(min_limit)],
-                                    capture_output=True, timeout=5,
-                                )
-                        print(f"  Power limits set to {min_limit:.0f}W.\n")
-                    else:
-                        print(f"Power limits already equal: {limits[0][1]:.0f}W\n")
-        except Exception as e:
-            print(f"  NOTE: Could not equalise power limits: {e}\n")
+            print(f"  → Benchmarking on GPU {bench_device}: {gpu_names[bench_device]}\n")
 
     # ── GPU thermal warmup before all benchmarks ─────────────────
     # Warm up only the bench GPU for tests 1-9; bench 10 does its
