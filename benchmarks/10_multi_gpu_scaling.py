@@ -101,18 +101,7 @@ def _build_bert_base() -> nn.Module:
 
 def _build_gpt2() -> nn.Module:
     cfg = GPT2Config(**MULTIGPU_LLM_CONFIG)
-    # Suppress "loss_type=None" warning emitted by transformers logger
-    if getattr(cfg, "loss_type", "MISSING") is None:
-        cfg.loss_type = "ForCausalLMLoss"
-    import logging as _logging
-    _tf_logger = _logging.getLogger("transformers.modeling_utils")
-    _prev_level = _tf_logger.level
-    _tf_logger.setLevel(_logging.ERROR)
-    try:
-        model = GPT2LMHeadModel(cfg)  # FP32; AMP autocast handles FP16 compute
-    finally:
-        _tf_logger.setLevel(_prev_level)
-    return model
+    return GPT2LMHeadModel(cfg)  # FP32; AMP autocast handles FP16 compute
 
 
 # ──────────────────────────── micro-step functions ────────────────────────────

@@ -168,6 +168,7 @@ MULTIGPU_LLM_CONFIG: dict = {
     "n_embd": 1280,
     "vocab_size": 50257,
     "n_positions": 1024,
+    "loss_type": "ForCausalLMLoss",
 }
 
 # ── Power / Thermal Monitoring ────────────────────────────────────────────────

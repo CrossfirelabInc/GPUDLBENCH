@@ -135,15 +135,23 @@ GPU'nun alt seviye donanım performansını ölçüyor:
 ## 10. Çoklu GPU Ölçekleme (Multi-GPU Scaling)
 
 **Ne yapıyor?**
-Aynı iş yükünü 1 GPU ve 2 GPU ile çalıştırarak, ikinci GPU'nun ne kadar fayda sağladığını ölçüyor. Ölçekleme verimi (%) hesaplanıyor.
+Aynı iş yükünü 1 GPU ve 2 GPU ile çalıştırarak, ikinci GPU'nun ne kadar fayda sağladığını ölçüyor. Üç farklı model test edilir: ResNet-50 (görüntü/CNN), BERT-base (NLP encoder) ve GPT-2 Large (~774M parametre, LLM decoder). Her model için tek GPU baseline, DDP ve FSDP ZeRO-2 yöntemleri karşılaştırılır. Ölçekleme verimi (%) = 2 GPU throughput / (2 × 1 GPU throughput) × 100 formülüyle hesaplanır.
 
 **Gerçek hayatta ne anlama geliyor?**
 - **İkinci bir GPU almaya değer mi?** Bu test tam olarak bunu gösterir.
 - %100 verim = 2 GPU, tam olarak 2 kat hız. Gerçekte bu neredeyse imkansızdır çünkü GPU'lar arası haberleşme zaman alır.
+- %85-95 arası verim = çok iyi ölçekleme. İkinci GPU yatırımınıza değer.
 - %70-85 arası verim = iyi ölçekleme. İkinci GPU'dan büyük fayda var.
 - %50 altı = zayıf ölçekleme. İkinci GPU parayı tam hak etmiyor.
 - **Eğitim genellikle iyi ölçeklenir**, çıkarım (inference) genellikle daha zor ölçeklenir çünkü batch size küçüktür.
-- DataParallel (tek makine, tek işlem) kullanılır — en yaygın çoklu GPU senaryosu.
+
+### Kullanılan Yöntemler
+
+**DDP (DistributedDataParallel)**
+Her GPU'da modelin tam bir kopyası bulunur. Her GPU kendi batch'ini işler, sonra gradyanlar NCCL all-reduce ile toplanır ve senkronize edilir. En yaygın ve en basit çoklu GPU eğitim yöntemidir. Ek VRAM tasarrufu sağlamaz — her GPU, modelin tamamını ve optimizer state'lerini ayrı ayrı tutar. Küçük-orta modellerde (%95+ verimlilik ile) en iyi performansı verir.
+
+**FSDP ZeRO-2 (Fully Sharded Data Parallel — SHARD_GRAD_OP)**
+Microsoft DeepSpeed ZeRO Stage-2'nin PyTorch-native karşılığıdır. DDP'den farklı olarak gradyanları ve optimizer state'lerini GPU'lar arasında parçalar (shard). Bu sayede her GPU, bu verilerin yalnızca 1/N'ini tutar — VRAM tasarrufu sağlar ve daha büyük modellerin/batch'lerin sığmasını mümkün kılar. Model parametreleri forward ve backward arasında her GPU'da tam olarak tutulur (ZeRO-3'ten farkı budur). Büyük modellerde (GPT-2 Large gibi) VRAM verimliliği sayesinde DDP'den daha iyi ölçeklenebilir.
 
 ---
 
