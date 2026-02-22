@@ -270,6 +270,7 @@ def main() -> None:
         print(spec["label"].upper())
         print("-" * 70)
         for prec in precisions:
+            prev_tput = 0.0
             for bs in batch_sizes:
                 result = benchmark_model(model_key, prec, bs, device,
                                          warmup=args.warmup,
@@ -277,6 +278,11 @@ def main() -> None:
                 results.append(result)
                 if result["status"] == "oom":
                     break  # larger batch sizes will also OOM
+                cur_tput = result.get("throughput_img_per_sec") or 0.0
+                if prev_tput > 0 and cur_tput < prev_tput:
+                    print(f"  └ Throughput dropped ({cur_tput:.2f} < {prev_tput:.2f}), stopping BS scaling")
+                    break
+                prev_tput = cur_tput
         print()
 
     hw_stats = monitor.stop() if monitor else {}

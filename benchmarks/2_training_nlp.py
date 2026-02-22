@@ -198,12 +198,18 @@ def main() -> None:
         print("-" * 70)
 
         for prec in precisions:
+            prev_tput = 0.0
             for bs in batch_sizes:
                 result = benchmark_model(model_name, model_config, prec, bs, device,
                                          warmup=args.warmup, iterations=args.iterations)
                 results.append(result)
                 if result["status"] == "oom":
                     break  # larger batch sizes will also OOM
+                cur_tput = result.get("throughput_samples_per_sec") or 0.0
+                if prev_tput > 0 and cur_tput < prev_tput:
+                    print(f"  └ Throughput dropped ({cur_tput:.1f} < {prev_tput:.1f}), stopping BS scaling")
+                    break
+                prev_tput = cur_tput
 
     hw_stats = monitor.stop() if monitor else {}
 
