@@ -155,6 +155,7 @@ MULTIGPU_LLM_SEQ_LENGTH: int = 128
 MULTIGPU_LLM_GEN_TOKENS: int = 64
 MULTIGPU_WARMUP: int = 5
 MULTIGPU_ITERATIONS: int = 50
+MULTIGPU_GRAD_ACCUM_STEPS: int = 4   # gradient accumulation steps (improves PCIe scaling)
 
 # Llama-1B architecture (same family as DeepSeek-R1-Distill-Llama)
 # Sized to fit FP16 training on a single 24-32 GB GPU with batch=2.

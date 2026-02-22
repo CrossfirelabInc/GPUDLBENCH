@@ -54,6 +54,7 @@ from benchmarks.benchmark_utils import (
     set_tf32,
 )
 from benchmarks.config import (
+    MULTIGPU_GRAD_ACCUM_STEPS,
     MULTIGPU_ITERATIONS,
     MULTIGPU_LLM_BATCH_PER_GPU,
     MULTIGPU_LLM_CONFIG,
@@ -102,31 +103,30 @@ def _build_llama() -> nn.Module:
     return LlamaForCausalLM(cfg).half()  # FP16 to fit in VRAM
 
 
-# ──────────────────────────── training steps (per iteration) ──────────────────
+# ──────────────────────────── micro-step functions ────────────────────────────
+# Each returns a scalar loss (forward + backward only, no optimizer step).
 
-def _train_step_resnet(model, optimizer, batch_per_gpu, device):
+def _microstep_resnet(model, batch_per_gpu, device):
     x = torch.randn(batch_per_gpu, 3, VISION_IMAGE_SIZE, VISION_IMAGE_SIZE,
                      device=device)
     y = torch.zeros(batch_per_gpu, dtype=torch.long, device=device)
-    optimizer.zero_grad(set_to_none=True)
-    loss = nn.functional.cross_entropy(model(x), y)
+    with torch.amp.autocast("cuda"):
+        loss = nn.functional.cross_entropy(model(x), y)
     loss.backward()
-    optimizer.step()
 
 
-def _train_step_bert(model, optimizer, batch_per_gpu, device):
+def _microstep_bert(model, batch_per_gpu, device):
     ids = torch.randint(0, NLP_VOCAB_SIZE,
                         (batch_per_gpu, NLP_SEQ_LENGTH), device=device)
     mask = torch.ones(batch_per_gpu, NLP_SEQ_LENGTH,
                       dtype=torch.long, device=device)
     labels = torch.zeros(batch_per_gpu, dtype=torch.long, device=device)
-    optimizer.zero_grad(set_to_none=True)
-    loss = model(input_ids=ids, attention_mask=mask, labels=labels).loss
+    with torch.amp.autocast("cuda"):
+        loss = model(input_ids=ids, attention_mask=mask, labels=labels).loss
     loss.backward()
-    optimizer.step()
 
 
-def _train_step_llama(model, optimizer, batch_per_gpu, device):
+def _microstep_llama(model, batch_per_gpu, device):
     vocab = MULTIGPU_LLM_CONFIG["vocab_size"]
     ids = torch.randint(0, vocab,
                         (batch_per_gpu, MULTIGPU_LLM_SEQ_LENGTH), device=device)
@@ -134,10 +134,9 @@ def _train_step_llama(model, optimizer, batch_per_gpu, device):
                       dtype=torch.long, device=device)
     labels = torch.randint(0, vocab,
                            (batch_per_gpu, MULTIGPU_LLM_SEQ_LENGTH), device=device)
-    optimizer.zero_grad(set_to_none=True)
-    loss = model(input_ids=ids, attention_mask=mask, labels=labels).loss
+    with torch.amp.autocast("cuda"):
+        loss = model(input_ids=ids, attention_mask=mask, labels=labels).loss
     loss.backward()
-    optimizer.step()
 
 
 # Module-level registries (must be picklable for mp.spawn)
@@ -147,25 +146,35 @@ _MODEL_BUILDERS = {
     "llama-1b":  _build_llama,
 }
 
-_TRAIN_STEPS = {
-    "resnet50":  _train_step_resnet,
-    "bert-base": _train_step_bert,
-    "llama-1b":  _train_step_llama,
+_MICROSTEPS = {
+    "resnet50":  _microstep_resnet,
+    "bert-base": _microstep_bert,
+    "llama-1b":  _microstep_llama,
 }
 
 
 # ──────────────────────────── DDP training worker ─────────────────────────────
 
 def _ddp_train_worker(rank, world_size, port, model_key, batch_per_gpu,
-                      warmup, iterations, seed, result_dict):
-    """Spawned DDP training worker — one process per GPU."""
+                      warmup, iterations, seed, grad_accum, result_dict):
+    """Spawned DDP training worker — one process per GPU.
+
+    Uses gradient accumulation with ``model.no_sync()`` to overlap
+    computation with communication.  Only the last micro-step in each
+    accumulation window triggers the NCCL all-reduce, amortising the
+    PCIe transfer cost over *grad_accum* forward/backward passes.
+
+    Additional DDP flags:
+      • gradient_as_bucket_view — avoids gradient-to-bucket copy
+      • static_graph           — graph is fixed, enables comm optimisations
+      • bucket_cap_mb=100      — fewer, larger allreduce calls (good for PCIe)
+    """
     os.environ["MASTER_ADDR"] = "127.0.0.1"
     os.environ["MASTER_PORT"] = str(port)
     dist.init_process_group("nccl", rank=rank, world_size=world_size,
                             device_id=torch.device(f"cuda:{rank}"))
     torch.cuda.set_device(rank)
 
-    # Reproduce the same environment as the main process
     torch.manual_seed(seed + rank)
     torch.cuda.manual_seed(seed + rank)
     torch.backends.cuda.matmul.allow_tf32 = True
@@ -174,14 +183,28 @@ def _ddp_train_worker(rank, world_size, port, model_key, batch_per_gpu,
     torch.backends.cudnn.benchmark = False
 
     model = _MODEL_BUILDERS[model_key]().to(rank)
-    model = DDP(model, device_ids=[rank])
+    model = DDP(model, device_ids=[rank],
+                gradient_as_bucket_view=True,
+                static_graph=True,
+                bucket_cap_mb=100)
     model.train()
     optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4)
-    step_fn = _TRAIN_STEPS[model_key]
+    micro_fn = _MICROSTEPS[model_key]
+
+    # --- helper: one full "iteration" = grad_accum micro-steps + optimizer ---
+    def _one_iter():
+        optimizer.zero_grad(set_to_none=True)
+        for micro in range(grad_accum):
+            if micro < grad_accum - 1:
+                with model.no_sync():        # skip allreduce
+                    micro_fn(model, batch_per_gpu, rank)
+            else:
+                micro_fn(model, batch_per_gpu, rank)  # allreduce here
+        optimizer.step()
 
     # Warmup
     for _ in range(warmup):
-        step_fn(model, optimizer, batch_per_gpu, rank)
+        _one_iter()
 
     torch.cuda.synchronize(rank)
     dist.barrier()
@@ -189,12 +212,11 @@ def _ddp_train_worker(rank, world_size, port, model_key, batch_per_gpu,
     # Timed benchmark
     t0 = time.perf_counter()
     for _ in range(iterations):
-        step_fn(model, optimizer, batch_per_gpu, rank)
+        _one_iter()
     torch.cuda.synchronize(rank)
     dist.barrier()
     elapsed = time.perf_counter() - t0
 
-    # Only rank 0 reports the result
     if rank == 0:
         result_dict["elapsed"] = elapsed
 
@@ -204,29 +226,42 @@ def _ddp_train_worker(rank, world_size, port, model_key, batch_per_gpu,
 # ──────────────────────────── training benchmarks ─────────────────────────────
 
 def _bench_training_single(model_key, batch_per_gpu, warmup, iterations,
-                           device=0):
-    """Single-GPU training (no DDP overhead)."""
+                           grad_accum=MULTIGPU_GRAD_ACCUM_STEPS, device=0):
+    """Single-GPU training with gradient accumulation + AMP.
+
+    Uses the same grad_accum count as DDP so the per-iteration sample
+    count is identical and scaling efficiency is an apples-to-apples
+    comparison.
+    """
     model = _MODEL_BUILDERS[model_key]().to(device)
     model.train()
     optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4)
-    step_fn = _TRAIN_STEPS[model_key]
+    micro_fn = _MICROSTEPS[model_key]
+
+    def _one_iter():
+        optimizer.zero_grad(set_to_none=True)
+        for _ in range(grad_accum):
+            micro_fn(model, batch_per_gpu, device)
+        optimizer.step()
 
     for _ in range(warmup):
-        step_fn(model, optimizer, batch_per_gpu, device)
+        _one_iter()
     torch.cuda.synchronize(device)
 
     t0 = time.perf_counter()
     for _ in range(iterations):
-        step_fn(model, optimizer, batch_per_gpu, device)
+        _one_iter()
     torch.cuda.synchronize(device)
     elapsed = time.perf_counter() - t0
 
+    samples = iterations * batch_per_gpu * grad_accum
     del model, optimizer
     torch.cuda.empty_cache()
-    return (iterations * batch_per_gpu) / elapsed
+    return samples / elapsed
 
 
 def _bench_training_ddp(model_key, n_gpus, batch_per_gpu, warmup, iterations,
+                        grad_accum=MULTIGPU_GRAD_ACCUM_STEPS,
                         seed=RANDOM_SEED):
     """Multi-GPU DDP training — spawns one process per GPU, returns throughput."""
     port = _find_free_port()
@@ -236,13 +271,13 @@ def _bench_training_ddp(model_key, n_gpus, batch_per_gpu, warmup, iterations,
     mp.spawn(
         _ddp_train_worker,
         args=(n_gpus, port, model_key, batch_per_gpu,
-              warmup, iterations, seed, result_dict),
+              warmup, iterations, seed, grad_accum, result_dict),
         nprocs=n_gpus,
         join=True,
     )
 
     elapsed = result_dict["elapsed"]
-    total_samples = iterations * batch_per_gpu * n_gpus
+    total_samples = iterations * batch_per_gpu * n_gpus * grad_accum
     throughput = total_samples / elapsed
 
     torch.cuda.empty_cache()
@@ -365,7 +400,7 @@ def main() -> None:
     sep = "=" * 72
     print(sep)
     print("Benchmark 10 — Multi-GPU Scaling")
-    print("Training: DDP (NCCL)  |  Inference: DataParallel")
+    print(f"Training: DDP (NCCL, grad_accum={MULTIGPU_GRAD_ACCUM_STEPS})  |  Inference: DataParallel")
     print(sep)
 
     check_cuda_available()
@@ -568,6 +603,18 @@ def main() -> None:
                   f"{tput_str:>14}  "
                   f"{r['scaling_efficiency_pct']:>9.1f}%")
     print(sep)
+
+    # Normalise row keys so every dict has the same fields (CSV requires it)
+    all_keys: list[str] = []
+    seen: set[str] = set()
+    for r in all_rows:
+        for k in r:
+            if k not in seen:
+                all_keys.append(k)
+                seen.add(k)
+    for r in all_rows:
+        for k in all_keys:
+            r.setdefault(k, "")
 
     csv_path, json_path = save_results(
         all_rows,
