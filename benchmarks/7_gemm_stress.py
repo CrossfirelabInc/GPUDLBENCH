@@ -44,11 +44,12 @@ from benchmarks.config import (
 
 # ─── GEMM kernels ─────────────────────────────────────────────────────────────
 
-def _bench_gemm_dtype(N: int, dtype: torch.dtype, device: torch.device) -> dict:
+def _bench_gemm_dtype(N: int, dtype: torch.dtype, device: torch.device,
+                      warmup: int = GEMM_WARMUP, repeats: int = GEMM_REPEATS) -> dict:
     """Square NxN @ NxN GEMM for the given dtype."""
     a = torch.randn(N, N, device=device, dtype=dtype)
     b = torch.randn(N, N, device=device, dtype=dtype)
-    t = median_time(lambda: torch.mm(a, b), GEMM_WARMUP, GEMM_REPEATS)
+    t = median_time(lambda: torch.mm(a, b), warmup, repeats)
     flops = 2.0 * N ** 3          # multiply-add counts as 2 FLOPs
     tflops = flops / t / 1e12
     mem_gb = 2.0 * N * N * a.element_size() / 1e9
@@ -62,7 +63,8 @@ def _bench_gemm_dtype(N: int, dtype: torch.dtype, device: torch.device) -> dict:
     }
 
 
-def _bench_gemm_fp8(N: int, device: torch.device) -> dict | None:
+def _bench_gemm_fp8(N: int, device: torch.device,
+                    warmup: int = GEMM_WARMUP, repeats: int = GEMM_REPEATS) -> dict | None:
     """FP8 GEMM via torch._scaled_mm (Ada/Hopper/Blackwell only)."""
     if not hasattr(torch, "float8_e4m3fn"):
         return None
@@ -81,7 +83,7 @@ def _bench_gemm_fp8(N: int, device: torch.device) -> dict | None:
         torch._scaled_mm(a8, b8, scale_a=scale_a, scale_b=scale_b,
                          out_dtype=torch.float16)
 
-    t = median_time(_fn, GEMM_WARMUP, GEMM_REPEATS)
+    t = median_time(_fn, warmup, repeats)
     flops = 2.0 * N ** 3
     tflops = flops / t / 1e12
     del a_fp16, b_fp16, a8, b8
@@ -97,7 +99,9 @@ def _bench_gemm_fp8(N: int, device: torch.device) -> dict | None:
 # ─── precision sweep ──────────────────────────────────────────────────────────
 
 def _run_precision(label: str, spec, device: torch.device,
-                   sizes: list[int]) -> list[dict]:
+                   sizes: list[int],
+                   warmup: int = GEMM_WARMUP,
+                   repeats: int = GEMM_REPEATS) -> list[dict]:
     """Sweep all sizes for one precision.  Returns a list of result rows."""
     bar = "─" * 72
     print(f"\n{bar}")
@@ -110,12 +114,12 @@ def _run_precision(label: str, spec, device: torch.device,
     for N in sizes:
         try:
             if spec == "fp8":
-                r = _bench_gemm_fp8(N, device)
+                r = _bench_gemm_fp8(N, device, warmup, repeats)
                 if r is None:
                     print(f"  {N:>6}×{N:<6}  FP8 not available on this GPU")
                     break
             else:
-                r = _bench_gemm_dtype(N, spec, device)
+                r = _bench_gemm_dtype(N, spec, device, warmup, repeats)
             r["precision"] = label
             rows.append(r)
             print(f"  {N:>6}×{N:<6}  "
@@ -140,10 +144,11 @@ def main() -> None:
     args = parser.parse_args()
 
     # Demo mode overrides
+    gemm_warmup = GEMM_WARMUP
+    gemm_repeats = GEMM_REPEATS
     if args.demo:
-        global GEMM_WARMUP, GEMM_REPEATS
-        GEMM_WARMUP = DEMO_GEMM_WARMUP
-        GEMM_REPEATS = DEMO_GEMM_REPEATS
+        gemm_warmup = DEMO_GEMM_WARMUP
+        gemm_repeats = DEMO_GEMM_REPEATS
         print("*** DEMO MODE — reduced sizes and repetitions ***\n")
 
     separator = "=" * 72
@@ -178,7 +183,7 @@ def main() -> None:
 
     print(f"\nMatrix sizes : {sizes}")
     print(f"Precisions   : {[p[0] for p in precisions]}")
-    print(f"Warmup / runs: {GEMM_WARMUP} / {GEMM_REPEATS}")
+    print(f"Warmup / runs: {gemm_warmup} / {gemm_repeats}")
 
     # Stabilise GPU clocks/thermals before any timed measurements
     if not args.skip_thermal_warmup:
@@ -188,7 +193,7 @@ def main() -> None:
     peak: dict[str, float] = {}
 
     for label, spec in precisions:
-        rows = _run_precision(label, spec, device, sizes)
+        rows = _run_precision(label, spec, device, sizes, gemm_warmup, gemm_repeats)
         all_rows.extend(rows)
         if rows:
             peak[label] = max(r["tflops"] for r in rows)
@@ -208,7 +213,7 @@ def main() -> None:
         "gemm_stress",
         gpu_info,
         extra_meta={"peak_tflops": peak, "matrix_sizes": sizes,
-                    "warmup": GEMM_WARMUP, "repeats": GEMM_REPEATS},
+                    "warmup": gemm_warmup, "repeats": gemm_repeats},
         output_dir=args.output_dir,
     )
     print(f"\nResults saved:\n  CSV  → {csv_path}\n  JSON → {json_path}\n")

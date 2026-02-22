@@ -53,6 +53,7 @@ def load_results(results_dir: Path = DEFAULT_RESULTS_DIR) -> dict[str, Any]:
         "training_detection": _load_json("training_detection.json", results_dir),
         "gemm_stress": _load_json("gemm_stress.json", results_dir),
         "gpu_fundamentals": _load_json("gpu_fundamentals.json", results_dir),
+        "multi_gpu_scaling": _load_json("multi_gpu_scaling.json", results_dir),
     }
 
 
@@ -329,6 +330,27 @@ def generate_markdown_report(data: dict[str, Any], session_id: str = "", session
 
         lines.append("")
 
+    # ── Multi-GPU Scaling ─────────────────────────────────────────────────
+    mgpu = data.get("multi_gpu_scaling")
+    if mgpu:
+        mgpu_rows = mgpu.get("results", [])
+        success_rows = [r for r in mgpu_rows if r.get("status") == "success"]
+        if success_rows:
+            lines.append("## Multi-GPU Training Scaling\n")
+            lines.append("| Model | Method | GPUs | Throughput | Efficiency | Speedup |")
+            lines.append("|-------|--------|------|------------|------------|---------|")
+            for r in success_rows:
+                model = r.get("model", "")
+                method = r.get("method", "")
+                n_gpus = r.get("n_gpus", 1)
+                tput = r.get("throughput_samples_per_sec", 0)
+                eff = r.get("scaling_efficiency_pct")
+                spd = r.get("speedup")
+                eff_str = f"{eff:.1f}%" if eff is not None else "—"
+                spd_str = f"{spd:.2f}×" if spd is not None and n_gpus > 1 else "—"
+                lines.append(f"| {model} | {method} | {n_gpus} | {tput:.1f} s/s | {eff_str} | {spd_str} |")
+            lines.append("")
+
     # ── HW Monitor stats (if available) ──────────────────────────────────
     any_hw = False
     for d in data.values():
@@ -451,6 +473,21 @@ def generate_csv_summary(data: dict[str, Any]) -> list[dict[str, str]]:
         for r in llm["results"]:
             if r.get("tokens_per_second"):
                 _add("LLM", r["model"], f"{r['tokens_per_second']:.1f} t/s")
+
+    # Multi-GPU Scaling
+    mgpu = data.get("multi_gpu_scaling")
+    if mgpu:
+        for r in mgpu.get("results", []):
+            if r.get("status") == "success":
+                method = r.get("method", "")
+                model = r.get("model", "")
+                n = r.get("n_gpus", 1)
+                tput = r.get("throughput_samples_per_sec", 0)
+                eff = r.get("scaling_efficiency_pct")
+                eff_str = f" eff={eff:.0f}%" if eff is not None and n > 1 else ""
+                _add("Multi-GPU Scaling",
+                     f"{model} {method} {n}GPU",
+                     f"{tput:.1f} s/s{eff_str}")
 
     return rows
 

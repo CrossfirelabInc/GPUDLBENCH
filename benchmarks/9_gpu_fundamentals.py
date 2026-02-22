@@ -178,16 +178,31 @@ def bench_fft(device: torch.device) -> list[dict]:
 
 # ──────────────────────────── 5. N-body gravity ───────────────────────────────
 
-def _nbody_step(pos: torch.Tensor, mass: torch.Tensor,
-                dt: float = 0.01) -> torch.Tensor:
-    """One Euler step of all-pairs gravity: O(N²) via broadcasting."""
+def _nbody_accel(pos: torch.Tensor, mass: torch.Tensor) -> torch.Tensor:
+    """Compute all-pairs gravitational acceleration: O(N²) via broadcasting."""
     # pos: (N, 3), mass: (N,)
     diff = pos.unsqueeze(1) - pos.unsqueeze(0)          # (N, N, 3)
     dist_sq = (diff ** 2).sum(-1) + 1e-6                # (N, N) softened
     dist_cu = dist_sq * dist_sq.sqrt()                  # |r|³
     m = mass.unsqueeze(0)                               # (1, N)
-    accel = -(diff * m.unsqueeze(-1) / dist_cu.unsqueeze(-1)).sum(1)  # (N, 3)
-    return pos + accel * dt
+    return -(diff * m.unsqueeze(-1) / dist_cu.unsqueeze(-1)).sum(1)  # (N, 3)
+
+
+def _nbody_leapfrog(pos: torch.Tensor, vel: torch.Tensor,
+                    mass: torch.Tensor, steps: int,
+                    dt: float = 0.01) -> tuple[torch.Tensor, torch.Tensor]:
+    """Leapfrog (kick-drift-kick) integrator — symplectic, same O(N²) compute.
+
+    Unlike naive Euler, leapfrog conserves energy to second order, making
+    it the standard integrator for gravitational N-body benchmarks.
+    """
+    a = _nbody_accel(pos, mass)
+    for _ in range(steps):
+        vel = vel + 0.5 * dt * a                        # half-kick
+        pos = pos + dt * vel                             # drift
+        a = _nbody_accel(pos, mass)                      # new acceleration
+        vel = vel + 0.5 * dt * a                        # half-kick
+    return pos, vel
 
 
 def bench_nbody(device: torch.device, N: int = FUND_NBODY_N,
@@ -197,13 +212,11 @@ def bench_nbody(device: torch.device, N: int = FUND_NBODY_N,
     for dtype, label in [(torch.float32, "FP32"), (torch.float64, "FP64")]:
         try:
             pos  = torch.randn(N, 3,  dtype=dtype, device=device)
+            vel  = torch.zeros(N, 3,  dtype=dtype, device=device)
             mass = torch.rand( N,     dtype=dtype, device=device) + 0.1
 
             def _run():
-                p = pos
-                for _ in range(steps):
-                    p = _nbody_step(p, mass)
-                return p
+                return _nbody_leapfrog(pos, vel, mass, steps)
 
             t = median_time(_run, 2, 5)
             particle_steps_per_s = N * steps / t
@@ -212,7 +225,7 @@ def bench_nbody(device: torch.device, N: int = FUND_NBODY_N,
             rows.append(_row("nbody", f"gravity_{label.lower()}", "throughput",
                              particle_steps_per_s / 1e6, "M_particle_steps_per_s",
                              label, f"N={N}, steps={steps}"))
-            del pos, mass
+            del pos, vel, mass
             torch.cuda.empty_cache()
         except RuntimeError as e:
             if "out of memory" in str(e).lower():

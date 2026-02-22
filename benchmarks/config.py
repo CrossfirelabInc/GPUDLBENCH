@@ -35,8 +35,11 @@ HF_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 os.environ.setdefault("HF_HOME", str(HF_CACHE_DIR))
 
 # ── Precision modes ───────────────────────────────────────────────────────────
-TRAINING_PRECISIONS: list[str] = ["fp32", "fp16", "bf16", "fp8"]
-INFERENCE_PRECISIONS: list[str] = ["fp32", "fp16", "bf16", "fp8"]
+# FP8 is excluded here — PyTorch AMP has no native FP8 autocast, so
+# training/inference benchmarks would just re-run FP16.  True FP8 is
+# benchmarked in GEMM stress (benchmark 7) via torch._scaled_mm.
+TRAINING_PRECISIONS: list[str] = ["fp32", "fp16", "bf16"]
+INFERENCE_PRECISIONS: list[str] = ["fp32", "fp16", "bf16"]
 
 # ── Vision (Benchmarks 1, 3) ─────────────────────────────────────────────────
 VISION_MODELS: list[str] = ["resnet50", "resnet101"]

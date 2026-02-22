@@ -170,6 +170,12 @@ _STRINGS: dict[str, dict[str, str]] = {
         "multigpu_ddp":             "2 GPU DDP",
         "multigpu_fsdp":            "2 GPU FSDP",
         "multigpu_efficiency":      "Ölçekleme Verimi",
+        # — VRAM Limits
+        "vram_title":               "VRAM Kapasite Karşılaştırması",
+        "vram_subtitle":            "Yüklenebilir model boyutu, VRAM kullanımı ve bağlam uzunluğu",
+        "vram_cat_params":          "En Büyük Model\n(Milyar Param)",
+        "vram_cat_actual_gb":       "VRAM Kullanımı\n(GB)",
+        "vram_cat_context":         "Maks. Bağlam\n(K token)",
         # — CNN vs Transformer
         "cnn_vs_tf_title":          "CNN vs Transformer — Ortalama Performans",
         "cnn_vs_tf_subtitle":       "Geometrik ortalama (en düşük GPU = 1.0x)",
@@ -274,6 +280,12 @@ _STRINGS: dict[str, dict[str, str]] = {
         "multigpu_ddp":             "2 GPU DDP",
         "multigpu_fsdp":            "2 GPU FSDP",
         "multigpu_efficiency":      "Scaling Efficiency",
+        # — VRAM Limits
+        "vram_title":               "VRAM Capacity Comparison",
+        "vram_subtitle":            "Max loadable model size, VRAM usage & context length",
+        "vram_cat_params":          "Largest Model\n(B Params)",
+        "vram_cat_actual_gb":       "VRAM Used\n(GB)",
+        "vram_cat_context":         "Max Context\n(K tokens)",
         # — CNN vs Transformer
         "cnn_vs_tf_title":          "CNN vs Transformer — Average Performance",
         "cnn_vs_tf_subtitle":       "Geometric mean (lowest GPU = 1.0x)",
@@ -1728,6 +1740,81 @@ def chart_dual_gpu(d: ComparisonData, out: Path):
     _save(fig, out / "cmp_dual_gpu.png")
 
 
+# ── VRAM Limits ───────────────────────────────────────────────────────────────
+
+def chart_vram_limits(d: ComparisonData, out: Path):
+    """Horizontal grouped bar chart comparing VRAM capacity across GPUs.
+
+    Three bars per GPU:
+      1. Largest loadable model (billion params)
+      2. Actual VRAM used for that model (GB)
+      3. Max context length (shown in K-tokens for readability)
+    """
+    specs = [
+        ("vram_largest_loadable_params_b",  S("vram_cat_params"),    "{:.1f}", 1.0),
+        ("vram_largest_loadable_actual_gb", S("vram_cat_actual_gb"), "{:.1f}", 1.0),
+        ("vram_max_context_length",         S("vram_cat_context"),   "{:.1f}", 1 / 1024),
+    ]
+
+    cats, metric_keys, fmts = [], [], []
+    scale_factors: list[float] = []
+    for mid, label, fmt, sf in specs:
+        raw = d.get(mid)
+        if any(v is not None for v in raw):
+            cats.append(label)
+            metric_keys.append(mid)
+            fmts.append(fmt)
+            scale_factors.append(sf)
+    if not cats:
+        return
+
+    # Build values matrix — apply scale factor (context → K-tokens)
+    vals: list[list[float]] = []
+    for gi in range(d.n_gpus):
+        row = []
+        for mid, sf in zip(metric_keys, scale_factors):
+            v = d.get(mid)[gi]
+            row.append(v * sf if v is not None else None)
+        vals.append(row)
+
+    n_gpus = d.n_gpus
+    fig, ax = _standard_fig(S("vram_title"), S("higher_better"),
+                            ACCENT_PURPLE, n_gpus, len(cats),
+                            height_ratio=max(1.0, len(cats) * 0.22))
+
+    y = np.arange(len(cats))
+    total_height = min(0.85, 0.15 * n_gpus + 0.25)
+    bar_h = total_height / n_gpus
+    vfs = _val_fontsize(n_gpus)
+
+    all_vals: list[float] = []
+    for gi, gname in enumerate(d.gpu_names()):
+        offset = (gi - (n_gpus - 1) / 2) * bar_h
+        color = GPU_COLORS[gi % len(GPU_COLORS)]
+        gvals = [v if v is not None else 0 for v in vals[gi]]
+        all_vals.extend(gvals)
+        bars = ax.barh(y + offset, gvals, bar_h * 0.88, color=color,
+                       edgecolor=BG_COLOR, linewidth=1, zorder=3, label=gname)
+        for bar, v, fmt in zip(bars, gvals, fmts):
+            if v > 0:
+                ax.text(v + max(all_vals) * 0.01,
+                        bar.get_y() + bar.get_height() / 2,
+                        fmt.format(v), va="center",
+                        fontsize=vfs, color=TEXT_COLOR, fontweight="bold")
+
+    ax.set_yticks(y)
+    ax.set_yticklabels(cats, fontsize=_tick_fontsize(n_gpus))
+    ax.set_title(S("vram_subtitle"), fontsize=12, color=SUBTEXT_COLOR, pad=10)
+    ax.grid(axis="x", linestyle="--", zorder=0)
+    ax.set_axisbelow(True)
+    ax.invert_yaxis()
+    max_v = max(all_vals) if all_vals else 1
+    ax.set_xlim(0, max_v * 1.25)
+    ax.legend(**_legend_kwargs(n_gpus))
+    fig.tight_layout(rect=[0, 0.02, 1, 0.92])
+    _save(fig, out / "cmp_vram_limits.png")
+
+
 # ── Scorecard ─────────────────────────────────────────────────────────────────
 
 def chart_scorecard(d: ComparisonData, out: Path):
@@ -1936,6 +2023,7 @@ def _run_charts(json_path: Path, output_dir: Path):
         chart_relative_performance,
         chart_cnn_vs_transformer,
         chart_dual_gpu,
+        chart_vram_limits,
         chart_scorecard,
     ]
 
