@@ -155,22 +155,20 @@ _STRINGS: dict[str, dict[str, str]] = {
         "power_eff_title":          "Watt Başına Performans",
         "power_eff_ylabel":         "Verim / Watt",
         "power_eff_subtitle":       "Yüksek = Daha verimli",
-        "power_training_vision":    "Eğitim \u2014 Görüntü",
-        "power_training_nlp":       "Eğitim \u2014 NLP",
-        "power_inference_vision":   "Çıkarım \u2014 Görüntü",
-        "power_inference_nlp":      "Çıkarım \u2014 NLP",
-        "power_llm":                "LLM Token Üretimi",
-        "power_detection":          "Nesne Algılama",
+        "power_resnet_train":      "ResNet-50 Eğitim",
+        "power_bert_train":        "BERT-base Eğitim",
+        "power_llm_tokens":        "LLM Token/sn",
         # — Relative Performance
         "relative_title":           "Görece Performans Karşılaştırması",
         "relative_subtitle":        "En düşük puanlı GPU = 1.0x temel çizgi",
         "relative_xlabel":          "Kat (x)",
         # — Multi-GPU
-        "multigpu_title":           "Çift GPU Gerçek İş Yükü Etkisi",
-        "multigpu_subtitle":        "1 GPU vs 2 GPU \u2014 İş Yükü Bazında",
+        "multigpu_title":           "Çift GPU Eğitim Hızlandırma",
+        "multigpu_subtitle":        "1 GPU vs 2 GPU — DDP vs FSDP ZeRO-2",
         "multigpu_ylabel":          "Örnek / sn",
         "multigpu_1gpu":            "1 GPU",
-        "multigpu_2gpu":            "2 GPU",
+        "multigpu_ddp":             "2 GPU DDP",
+        "multigpu_fsdp":            "2 GPU FSDP",
         "multigpu_efficiency":      "Ölçekleme Verimi",
         # — CNN vs Transformer
         "cnn_vs_tf_title":          "CNN vs Transformer — Ortalama Performans",
@@ -261,22 +259,20 @@ _STRINGS: dict[str, dict[str, str]] = {
         "power_eff_title":          "Performance per Watt",
         "power_eff_ylabel":         "Throughput / Watt",
         "power_eff_subtitle":       "Higher = More efficient",
-        "power_training_vision":    "Training \u2014 Vision",
-        "power_training_nlp":       "Training \u2014 NLP",
-        "power_inference_vision":   "Inference \u2014 Vision",
-        "power_inference_nlp":      "Inference \u2014 NLP",
-        "power_llm":                "LLM Token Gen",
-        "power_detection":          "Object Detection",
+        "power_resnet_train":      "ResNet-50 Train",
+        "power_bert_train":        "BERT-base Train",
+        "power_llm_tokens":        "LLM Token/s",
         # — Relative Performance
         "relative_title":           "Relative Performance Comparison",
         "relative_subtitle":        "Lowest scoring GPU = 1.0x baseline",
         "relative_xlabel":          "Speedup (x)",
         # — Multi-GPU
-        "multigpu_title":           "Dual-GPU Real-World Workload Impact",
-        "multigpu_subtitle":        "1 GPU vs 2 GPU \u2014 Per Workload",
+        "multigpu_title":           "Dual-GPU Training Speedup",
+        "multigpu_subtitle":        "1 GPU vs 2 GPU — DDP vs FSDP ZeRO-2",
         "multigpu_ylabel":          "Samples / sec",
         "multigpu_1gpu":            "1 GPU",
-        "multigpu_2gpu":            "2 GPU",
+        "multigpu_ddp":             "2 GPU DDP",
+        "multigpu_fsdp":            "2 GPU FSDP",
         "multigpu_efficiency":      "Scaling Efficiency",
         # — CNN vs Transformer
         "cnn_vs_tf_title":          "CNN vs Transformer — Average Performance",
@@ -524,14 +520,17 @@ def extract_multi_gpu_scaling(data: dict) -> Metricdict:
         if r.get("status") != "success":
             continue
         model  = r.get("model", "").replace("-", "_")
-        mode   = r.get("mode", "")
+        method = r.get("method", "single").lower()
         n_gpus = r.get("n_gpus", 1)
         tput   = r.get("throughput_samples_per_sec")
         eff    = r.get("scaling_efficiency_pct")
+        spd    = r.get("speedup")
         if tput is not None:
-            out[f"multigpu_{model}_{mode}_{n_gpus}gpu_samples_per_sec"] = _safe(tput)
+            out[f"multigpu_{model}_{method}_{n_gpus}gpu_samples_per_sec"] = _safe(tput)
         if eff is not None and n_gpus > 1:
-            out[f"multigpu_{model}_{mode}_{n_gpus}gpu_eff_pct"] = _safe(eff)
+            out[f"multigpu_{model}_{method}_{n_gpus}gpu_eff_pct"] = _safe(eff)
+        if spd is not None and n_gpus > 1:
+            out[f"multigpu_{model}_{method}_{n_gpus}gpu_speedup"] = _safe(spd)
     return out
 
 
@@ -1292,63 +1291,38 @@ def chart_detection_batch_norm(d: ComparisonData, out: Path):
 # ── Power Efficiency Charts ──────────────────────────────────────────────────
 
 def chart_power_efficiency(d: ComparisonData, out: Path):
-    """One chart per benchmark showing throughput/watt for each GPU."""
+    """Single chart: max throughput / avg watts for ResNet Train, BERT Train, LLM Token/s."""
     bench_specs = [
         {
             "power_key": "hw_power_training_vision_avg_w",
             "tput_prefix": "train_vision_",
             "tput_suffix": "_img_per_sec",
-            "label": S("power_training_vision"),
-            "filename": "cmp_power_training_vision.png",
-            "unit": S("unit_img_s") + "/W",
+            "label": S("power_resnet_train"),
+            "unit_suffix": S("unit_img_s") + "/W",
         },
         {
             "power_key": "hw_power_training_nlp_avg_w",
             "tput_prefix": "train_nlp_",
             "tput_suffix": "_samples_per_sec",
-            "label": S("power_training_nlp"),
-            "filename": "cmp_power_training_nlp.png",
-            "unit": S("unit_samples_s") + "/W",
-        },
-        {
-            "power_key": "hw_power_inference_vision_avg_w",
-            "tput_prefix": "infer_vision_",
-            "tput_suffix": "_img_per_sec",
-            "label": S("power_inference_vision"),
-            "filename": "cmp_power_inference_vision.png",
-            "unit": S("unit_img_s") + "/W",
-        },
-        {
-            "power_key": "hw_power_inference_nlp_avg_w",
-            "tput_prefix": "infer_nlp_",
-            "tput_suffix": "_samples_per_sec",
-            "label": S("power_inference_nlp"),
-            "filename": "cmp_power_inference_nlp.png",
-            "unit": S("unit_samples_s") + "/W",
+            "label": S("power_bert_train"),
+            "unit_suffix": S("unit_samples_s") + "/W",
         },
         {
             "power_key": "hw_power_llm_tokens_per_sec_avg_w",
             "tput_prefix": "llm_",
             "tput_suffix": "_tokens_per_sec",
-            "label": S("power_llm"),
-            "filename": "cmp_power_llm.png",
-            "unit": "token/s/W",
-        },
-        {
-            "power_key": "hw_power_training_detection_avg_w",
-            "tput_prefix": "detect_",
-            "tput_suffix": "_img_per_sec",
-            "label": S("power_detection"),
-            "filename": "cmp_power_detection.png",
-            "unit": S("unit_img_s") + "/W",
+            "label": S("power_llm_tokens"),
+            "unit_suffix": "token/s/W",
         },
     ]
 
+    cats: list[str] = []
+    eff_per_gpu: list[list[float | None]] = []
+
     for spec in bench_specs:
         power_vals = d.get(spec["power_key"])
-        if not any(v is not None for v in power_vals):
-            continue
 
+        # Find all throughput keys for this benchmark and pick the max per GPU
         tput_keys = sorted([m for m in d.metric_ids()
                             if m.startswith(spec["tput_prefix"])
                             and m.endswith(spec["tput_suffix"])
@@ -1356,45 +1330,46 @@ def chart_power_efficiency(d: ComparisonData, out: Path):
         if not tput_keys:
             continue
 
-        cats, eff_per_gpu = [], []
+        # For each GPU, find the max throughput across all model variants
+        max_tput: list[float | None] = [None] * d.n_gpus
         for mk in tput_keys:
-            tput_vals = d.get(mk)
-            has_data = any(
-                tput_vals[gi] is not None and power_vals[gi] is not None and power_vals[gi] > 0
-                for gi in range(d.n_gpus)
-            )
-            if not has_data:
-                continue
-
-            label = mk.replace(spec["tput_prefix"], "").replace(spec["tput_suffix"], "")
-            label = label.replace("_", " ").upper()
-            cats.append(label)
-
-            row = []
+            tvals = d.get(mk)
             for gi in range(d.n_gpus):
-                t = tput_vals[gi]
-                p = power_vals[gi]
-                if t is not None and p is not None and p > 0:
-                    row.append(round(t / p, 3))
-                else:
-                    row.append(None)
+                if tvals[gi] is not None:
+                    if max_tput[gi] is None or tvals[gi] > max_tput[gi]:
+                        max_tput[gi] = tvals[gi]
+
+        # Compute throughput / watts
+        row: list[float | None] = []
+        has_any = False
+        for gi in range(d.n_gpus):
+            t = max_tput[gi]
+            p = power_vals[gi]
+            if t is not None and p is not None and p > 0:
+                row.append(round(t / p, 3))
+                has_any = True
+            else:
+                row.append(None)
+
+        if has_any:
+            cats.append(spec["label"])
             eff_per_gpu.append(row)
 
-        if not cats:
-            continue
+    if not cats:
+        return
 
-        vals = [[eff_per_gpu[ci][gi] for ci in range(len(cats))]
-                for gi in range(d.n_gpus)]
+    vals = [[eff_per_gpu[ci][gi] for ci in range(len(cats))]
+            for gi in range(d.n_gpus)]
 
-        fig, ax = _standard_fig(
-            f"{S('power_eff_title')} \u2014 {spec['label']}",
-            S("higher_better"), ACCENT_GREEN,
-            d.n_gpus, len(cats),
-            height_ratio=max(1.0, len(cats) * 0.18))
-        _horizontal_grouped_bar(ax, cats, d.gpu_names(), vals,
-                     spec["unit"], S("power_eff_subtitle"), fmt="{:.2f}")
-        fig.tight_layout(rect=[0, 0.02, 1, 0.92])
-        _save(fig, out / spec["filename"])
+    fig, ax = _standard_fig(
+        S("power_eff_title"),
+        S("higher_better"), ACCENT_GREEN,
+        d.n_gpus, len(cats),
+        height_ratio=max(1.0, len(cats) * 0.18))
+    _horizontal_grouped_bar(ax, cats, d.gpu_names(), vals,
+                 S("power_eff_ylabel"), S("power_eff_subtitle"), fmt="{:.2f}")
+    fig.tight_layout(rect=[0, 0.02, 1, 0.92])
+    _save(fig, out / "cmp_power_efficiency.png")
 
 
 # ── Relative Performance Chart ────────────────────────────────────────────────
@@ -1641,38 +1616,42 @@ def chart_cnn_vs_transformer(d: ComparisonData, out: Path):
 # ── Enhanced Dual-GPU Chart ──────────────────────────────────────────────────
 
 def chart_dual_gpu(d: ComparisonData, out: Path):
-    """Show 1-GPU vs 2-GPU for real-world workloads."""
-    workload_specs = [
-        ("resnet50",  "training",  "ResNet-50 Train"),
-        ("resnet50",  "inference", "ResNet-50 Infer"),
-        ("bert_base", "training",  "BERT-Base Train"),
-        ("bert_base", "inference", "BERT-Base Infer"),
+    """Show 1-GPU vs 2-GPU DDP vs 2-GPU FSDP for each model's training."""
+    model_specs = [
+        ("resnet50",   "ResNet-50"),
+        ("bert_base",  "BERT-base"),
+        ("gpt2_large", "GPT-2 Large"),
     ]
 
-    cats = []
-    vals_1gpu: list[list[float | None]] = []
-    vals_2gpu: list[list[float | None]] = []
-    eff_vals: list[list[float | None]] = []
+    # method_tag -> (suffix for metric key, legend localisation key)
+    method_specs = [
+        ("single", "1gpu", "multigpu_1gpu"),
+        ("ddp",    "2gpu", "multigpu_ddp"),
+        ("fsdp",   "2gpu", "multigpu_fsdp"),
+    ]
 
-    for model, mode, label in workload_specs:
-        key_1 = f"multigpu_{model}_{mode}_1gpu_samples_per_sec"
-        key_2 = f"multigpu_{model}_{mode}_2gpu_samples_per_sec"
-        key_eff = f"multigpu_{model}_{mode}_2gpu_eff_pct"
+    # Build categories and per-method/per-gpu values
+    cats: list[str] = []
+    vals_per_method: dict[str, list[list[float | None]]] = {
+        m: [] for m, _, _ in method_specs
+    }
+    eff_per_method: dict[str, list[list[float | None]]] = {
+        m: [] for m, _, _ in method_specs
+    }
 
-        v1 = d.get(key_1)
-        v2 = d.get(key_2)
-        ve = d.get(key_eff)
+    for model_key, label in model_specs:
+        key_single = f"multigpu_{model_key}_single_1gpu_samples_per_sec"
+        v_single = d.get(key_single)
+        # Need at least single-GPU data for this model
+        if all(v is None for v in v_single):
+            continue
 
-        # Only include workload if at least one GPU has BOTH 1-GPU and 2-GPU data
-        has_pair = any(
-            a is not None and b is not None
-            for a, b in zip(v1, v2)
-        )
-        if has_pair:
-            cats.append(label)
-            vals_1gpu.append(v1)
-            vals_2gpu.append(v2)
-            eff_vals.append(ve)
+        cats.append(label)
+        for method, n_tag, _ in method_specs:
+            key_t = f"multigpu_{model_key}_{method}_{n_tag}_samples_per_sec"
+            key_e = f"multigpu_{model_key}_{method}_{n_tag}_eff_pct"
+            vals_per_method[method].append(d.get(key_t))
+            eff_per_method[method].append(d.get(key_e))
 
     if not cats:
         return
@@ -1680,8 +1659,9 @@ def chart_dual_gpu(d: ComparisonData, out: Path):
     n_cats = len(cats)
     n_gpus = d.n_gpus
     gpu_names = d.gpu_names()
+    n_methods = len(method_specs)
 
-    fig_w = _fig_w(n_gpus * 2, n_cats)
+    fig_w = _fig_w(n_gpus * n_methods, n_cats)
     fig, ax = plt.subplots(figsize=(fig_w, BASE_FIG_H))
     fig.suptitle(S("multigpu_title"), fontsize=22, fontweight="bold",
                  color=TEXT_COLOR, y=0.97)
@@ -1690,41 +1670,50 @@ def chart_dual_gpu(d: ComparisonData, out: Path):
     _watermark(fig)
 
     x = np.arange(n_cats)
-    cluster_w = 0.8 / n_gpus
-    sub_bar_w = cluster_w * 0.45
-    vfs = _val_fontsize(n_gpus * 2)
-    all_vals = []
+    # Each GPU gets a cluster; within that cluster, 3 sub-bars (single/DDP/FSDP)
+    cluster_w = 0.8 / max(n_gpus, 1)
+    sub_bar_w = cluster_w / (n_methods + 0.5)
+    vfs = _val_fontsize(n_gpus * n_methods)
+
+    method_shades = [0.7, 1.0, 1.3]  # darker for 1-GPU, normal for DDP, lighter for FSDP
+    all_vals: list[float] = []
 
     for gi, gname in enumerate(gpu_names):
-        color = GPU_COLORS[gi % len(GPU_COLORS)]
-        rgb = mcolors.to_rgb(color)
-        light_rgb = tuple(min(1.0, c * 1.3 + 0.15) for c in rgb)
-
+        base_color = GPU_COLORS[gi % len(GPU_COLORS)]
+        base_rgb = mcolors.to_rgb(base_color)
         cluster_offset = (gi - (n_gpus - 1) / 2) * cluster_w
 
-        v1s = [vals_1gpu[ci][gi] if vals_1gpu[ci][gi] is not None else 0 for ci in range(n_cats)]
-        all_vals.extend(v1s)
-        bars1 = ax.bar(x + cluster_offset - sub_bar_w / 2, v1s, sub_bar_w,
-                        color=color, edgecolor=BG_COLOR, linewidth=1, zorder=3,
-                        label=f"{gname} \u2014 {S('multigpu_1gpu')}")
-        for bar, v in zip(bars1, v1s):
-            if v > 0:
-                ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height(),
-                        f"{v:.0f}", ha="center", va="bottom",
-                        fontsize=vfs, color=TEXT_COLOR, fontweight="bold")
+        for mi, (method, _, loc_key) in enumerate(method_specs):
+            shade = method_shades[mi]
+            bar_rgb = tuple(min(1.0, c * shade) for c in base_rgb)
+            bar_offset = cluster_offset + (mi - (n_methods - 1) / 2) * sub_bar_w
 
-        v2s = [vals_2gpu[ci][gi] if vals_2gpu[ci][gi] is not None else 0 for ci in range(n_cats)]
-        all_vals.extend(v2s)
-        bars2 = ax.bar(x + cluster_offset + sub_bar_w / 2, v2s, sub_bar_w,
-                        color=light_rgb, edgecolor=BG_COLOR, linewidth=1, zorder=3,
-                        label=f"{gname} \u2014 {S('multigpu_2gpu')}")
-        for ci, (bar, v) in enumerate(zip(bars2, v2s)):
-            if v > 0:
-                eff = eff_vals[ci][gi] if eff_vals[ci][gi] is not None else None
-                eff_str = f"\n({eff:.0f}%)" if eff is not None else ""
-                ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height(),
-                        f"{v:.0f}{eff_str}", ha="center", va="bottom",
-                        fontsize=vfs, color=TEXT_COLOR, fontweight="bold")
+            vals = [
+                vals_per_method[method][ci][gi]
+                if vals_per_method[method][ci][gi] is not None else 0
+                for ci in range(n_cats)
+            ]
+            all_vals.extend(vals)
+
+            legend_label = f"{gname} — {S(loc_key)}"
+            bars = ax.bar(x + bar_offset, vals, sub_bar_w * 0.9,
+                          color=bar_rgb, edgecolor=BG_COLOR, linewidth=1,
+                          zorder=3, label=legend_label)
+
+            for ci, (bar, v) in enumerate(zip(bars, vals)):
+                if v > 0:
+                    # Show efficiency % for multi-GPU methods
+                    eff_list = eff_per_method[method][ci]
+                    eff_v = eff_list[gi] if eff_list[gi] is not None else None
+                    if eff_v is not None and method != "single":
+                        ann = f"{v:.0f}\n({eff_v:.0f}%)"
+                    else:
+                        ann = f"{v:.0f}"
+                    ax.text(bar.get_x() + bar.get_width() / 2,
+                            bar.get_height(),
+                            ann, ha="center", va="bottom",
+                            fontsize=vfs, color=TEXT_COLOR,
+                            fontweight="bold")
 
     ax.set_xticks(x)
     ax.set_xticklabels(cats, fontsize=_tick_fontsize(n_gpus))
@@ -1733,8 +1722,8 @@ def chart_dual_gpu(d: ComparisonData, out: Path):
     ax.grid(axis="y", linestyle="--", zorder=0)
     ax.set_axisbelow(True)
     max_v = max(all_vals) if all_vals else 1
-    ax.set_ylim(0, max_v * 1.22)
-    ax.legend(**_legend_kwargs(n_gpus * 2))
+    ax.set_ylim(0, max_v * 1.28)
+    ax.legend(**_legend_kwargs(n_gpus * n_methods))
     fig.tight_layout(rect=[0, 0.02, 1, 0.92])
     _save(fig, out / "cmp_dual_gpu.png")
 

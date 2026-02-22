@@ -71,7 +71,7 @@ BENCHMARKS = [
     (7,  "Compute Stress — GEMM Throughput",                     "benchmarks/7_gemm_stress.py"),
     (8,  "Object Detection (Faster R-CNN + Mask R-CNN)",         "benchmarks/8_training_detection.py"),
     (9,  "GPU Fundamentals (Bandwidth / FFT / HPC)",             "benchmarks/9_gpu_fundamentals.py"),
-    (10, "Multi-GPU Scaling (DDP Training, DP Inference)","benchmarks/10_multi_gpu_scaling.py"),
+    (10, "Multi-GPU Training Scaling (DDP + FSDP)","benchmarks/10_multi_gpu_scaling.py"),
 ]
 
 
