@@ -150,24 +150,21 @@ FUND_REPEATS: int = 20
 # ── Multi-GPU Scaling (Benchmark 10) ─────────────────────────────────────────
 MULTIGPU_VISION_BATCH_PER_GPU: int = 32
 MULTIGPU_NLP_BATCH_PER_GPU: int = 16
-MULTIGPU_LLM_BATCH_PER_GPU: int = 2
-MULTIGPU_LLM_SEQ_LENGTH: int = 128
+MULTIGPU_LLM_BATCH_PER_GPU: int = 4
+MULTIGPU_LLM_SEQ_LENGTH: int = 256
 MULTIGPU_LLM_GEN_TOKENS: int = 64
 MULTIGPU_WARMUP: int = 5
 MULTIGPU_ITERATIONS: int = 50
 MULTIGPU_GRAD_ACCUM_STEPS: int = 4   # gradient accumulation steps (improves PCIe scaling)
 
-# Llama-1B architecture (same family as DeepSeek-R1-Distill-Llama)
-# Sized to fit FP16 training on a single 24-32 GB GPU with batch=2.
+# GPT-2 Large architecture (nanoGPT-style)
+# ~774M parameters — good compute-to-communication ratio for multi-GPU scaling.
 MULTIGPU_LLM_CONFIG: dict = {
-    "num_hidden_layers": 16,
-    "hidden_size": 2048,
-    "num_attention_heads": 16,
-    "num_key_value_heads": 8,     # GQA (grouped-query attention)
-    "intermediate_size": 5632,
-    "vocab_size": 32000,
-    "max_position_embeddings": 2048,
-    "pad_token_id": 2,
+    "n_layer": 36,
+    "n_head": 20,
+    "n_embd": 1280,
+    "vocab_size": 50257,
+    "n_positions": 1024,
 }
 
 # ── Power / Thermal Monitoring ────────────────────────────────────────────────

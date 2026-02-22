@@ -12,7 +12,7 @@ Models tested
 ─────────────
   • ResNet-50   — vision training + inference
   • BERT-base   — NLP training + inference
-  • Llama-1B    — LLM training + inference + token generation
+  • GPT-2 Large — LLM training + inference + token generation
 
 If only one GPU is present the benchmark still completes, reporting
 single-GPU baselines and noting that multi-GPU results require ≥ 2 GPUs.
@@ -38,7 +38,7 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from torchvision.models import resnet50
 from transformers import (
     BertConfig, BertForSequenceClassification,
-    LlamaConfig, LlamaForCausalLM,
+    GPT2Config, GPT2LMHeadModel,
 )
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -98,9 +98,9 @@ def _build_bert_base() -> nn.Module:
     return BertForSequenceClassification(cfg)
 
 
-def _build_llama() -> nn.Module:
-    cfg = LlamaConfig(**MULTIGPU_LLM_CONFIG)
-    return LlamaForCausalLM(cfg)  # FP32 weights; AMP autocast handles FP16 compute
+def _build_gpt2() -> nn.Module:
+    cfg = GPT2Config(**MULTIGPU_LLM_CONFIG)
+    return GPT2LMHeadModel(cfg)  # FP32; AMP autocast handles FP16 compute
 
 
 # ──────────────────────────── micro-step functions ────────────────────────────
@@ -126,16 +126,14 @@ def _microstep_bert(model, batch_per_gpu, device):
     loss.backward()
 
 
-def _microstep_llama(model, batch_per_gpu, device):
+def _microstep_gpt2(model, batch_per_gpu, device):
     vocab = MULTIGPU_LLM_CONFIG["vocab_size"]
     ids = torch.randint(0, vocab,
                         (batch_per_gpu, MULTIGPU_LLM_SEQ_LENGTH), device=device)
-    mask = torch.ones(batch_per_gpu, MULTIGPU_LLM_SEQ_LENGTH,
-                      dtype=torch.long, device=device)
     labels = torch.randint(0, vocab,
                            (batch_per_gpu, MULTIGPU_LLM_SEQ_LENGTH), device=device)
     with torch.amp.autocast("cuda"):
-        loss = model(input_ids=ids, attention_mask=mask, labels=labels).loss
+        loss = model(input_ids=ids, labels=labels).loss
     loss.backward()
 
 
@@ -143,13 +141,13 @@ def _microstep_llama(model, batch_per_gpu, device):
 _MODEL_BUILDERS = {
     "resnet50":  _build_resnet50,
     "bert-base": _build_bert_base,
-    "llama-1b":  _build_llama,
+    "gpt2-large":  _build_gpt2,
 }
 
 _MICROSTEPS = {
     "resnet50":  _microstep_resnet,
     "bert-base": _microstep_bert,
-    "llama-1b":  _microstep_llama,
+    "gpt2-large":  _microstep_gpt2,
 }
 
 
@@ -307,13 +305,11 @@ def _bench_inference(model_key, device_ids, batch_per_gpu, warmup, iterations):
         mask = torch.ones(total_batch, NLP_SEQ_LENGTH,
                           dtype=torch.long, device=primary)
         run = lambda: model(input_ids=ids, attention_mask=mask)
-    elif model_key == "llama-1b":
+    elif model_key == "gpt2-large":
         vocab = MULTIGPU_LLM_CONFIG["vocab_size"]
         ids = torch.randint(0, vocab,
                             (total_batch, MULTIGPU_LLM_SEQ_LENGTH), device=primary)
-        mask = torch.ones(total_batch, MULTIGPU_LLM_SEQ_LENGTH,
-                          dtype=torch.long, device=primary)
-        run = lambda: model(input_ids=ids, attention_mask=mask)
+        run = lambda: model(input_ids=ids)
     else:
         raise ValueError(f"Unknown model key: {model_key}")
 
@@ -346,26 +342,26 @@ def _bench_inference(model_key, device_ids, batch_per_gpu, warmup, iterations):
 # ──────────────────────────── LLM generation benchmark ────────────────────────
 
 def _bench_generation(batch_per_gpu, warmup, iterations, device=0):
-    """Single-GPU token generation benchmark (Llama-1B).
+    """Single-GPU token generation benchmark (GPT-2 Large).
 
     Multi-GPU generation requires tensor parallelism — not benchmarked here.
     """
-    model = _build_llama().to(device)
+    model = _build_gpt2().to(device)
     model.eval()
 
     vocab = MULTIGPU_LLM_CONFIG["vocab_size"]
     ids = torch.randint(0, vocab,
                         (batch_per_gpu, MULTIGPU_LLM_SEQ_LENGTH), device=device)
-    mask = torch.ones_like(ids)
 
     with torch.no_grad(), warnings.catch_warnings():
         warnings.filterwarnings("ignore", message=".*pad_token_id.*")
 
         # Warmup
         for _ in range(warmup):
-            model.generate(input_ids=ids, attention_mask=mask,
+            model.generate(input_ids=ids,
                            max_new_tokens=MULTIGPU_LLM_GEN_TOKENS,
-                           do_sample=False)
+                           do_sample=False,
+                           pad_token_id=vocab - 1)
         torch.cuda.synchronize(device)
 
         # Timed benchmark
@@ -373,9 +369,10 @@ def _bench_generation(batch_per_gpu, warmup, iterations, device=0):
         for _ in range(iterations):
             torch.cuda.synchronize(device)
             t0 = time.perf_counter()
-            model.generate(input_ids=ids, attention_mask=mask,
+            model.generate(input_ids=ids,
                            max_new_tokens=MULTIGPU_LLM_GEN_TOKENS,
-                           do_sample=False)
+                           do_sample=False,
+                           pad_token_id=vocab - 1)
             torch.cuda.synchronize(device)
             times.append(time.perf_counter() - t0)
 
@@ -448,7 +445,7 @@ def main() -> None:
          "bpg": MULTIGPU_VISION_BATCH_PER_GPU},
         {"key": "bert-base", "label": "BERT-base",
          "bpg": MULTIGPU_NLP_BATCH_PER_GPU},
-        {"key": "llama-1b",  "label": "Llama-1B",
+        {"key": "gpt2-large",  "label": "GPT-2 Large",
          "bpg": MULTIGPU_LLM_BATCH_PER_GPU, "llm_gen": True},
     ]
 
