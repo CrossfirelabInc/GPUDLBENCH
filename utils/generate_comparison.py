@@ -1625,98 +1625,85 @@ def chart_cnn_vs_transformer(d: ComparisonData, out: Path):
     _save(fig, out / "cmp_cnn_vs_transformer.png")
 
 
-# ── Enhanced Dual-GPU Chart ──────────────────────────────────────────────────
+# ── Enhanced Dual-GPU Charts (per model) ─────────────────────────────────────
 
 def chart_dual_gpu(d: ComparisonData, out: Path):
-    """Show 1-GPU vs 2-GPU DDP vs 2-GPU FSDP for each model's training."""
+    """Generate one chart per model: 1-GPU vs 2-GPU DDP vs 2-GPU FSDP."""
     model_specs = [
         ("resnet50",   "ResNet-50"),
         ("bert_base",  "BERT-base"),
         ("gpt2_large", "GPT-2 Large"),
     ]
 
-    # method_tag -> (suffix for metric key, legend localisation key)
     method_specs = [
         ("single", "1gpu", "multigpu_1gpu"),
         ("ddp",    "2gpu", "multigpu_ddp"),
         ("fsdp",   "2gpu", "multigpu_fsdp"),
     ]
 
-    # Build categories and per-method/per-gpu values
-    cats: list[str] = []
-    vals_per_method: dict[str, list[list[float | None]]] = {
-        m: [] for m, _, _ in method_specs
-    }
-    eff_per_method: dict[str, list[list[float | None]]] = {
-        m: [] for m, _, _ in method_specs
-    }
-
-    for model_key, label in model_specs:
-        key_single = f"multigpu_{model_key}_single_1gpu_samples_per_sec"
-        v_single = d.get(key_single)
-        # Need at least single-GPU data for this model
-        if all(v is None for v in v_single):
-            continue
-
-        cats.append(label)
-        for method, n_tag, _ in method_specs:
-            key_t = f"multigpu_{model_key}_{method}_{n_tag}_samples_per_sec"
-            key_e = f"multigpu_{model_key}_{method}_{n_tag}_eff_pct"
-            vals_per_method[method].append(d.get(key_t))
-            eff_per_method[method].append(d.get(key_e))
-
-    if not cats:
-        return
-
-    n_cats = len(cats)
     n_gpus = d.n_gpus
     gpu_names = d.gpu_names()
     n_methods = len(method_specs)
+    method_shades = [0.7, 1.0, 1.3]
 
-    fig_w = _fig_w(n_gpus * n_methods, n_cats)
-    fig, ax = plt.subplots(figsize=(fig_w, BASE_FIG_H))
-    fig.suptitle(S("multigpu_title"), fontsize=22, fontweight="bold",
-                 color=TEXT_COLOR, y=0.97)
-    fig.text(0.97, 0.935, S("higher_better"), ha="right", va="top",
-             fontsize=10, color=ACCENT_GREEN, alpha=0.9)
-    _watermark(fig)
+    for model_key, model_label in model_specs:
+        key_single = f"multigpu_{model_key}_single_1gpu_samples_per_sec"
+        v_single = d.get(key_single)
+        if all(v is None for v in v_single):
+            continue
 
-    x = np.arange(n_cats)
-    # Each GPU gets a cluster; within that cluster, 3 sub-bars (single/DDP/FSDP)
-    cluster_w = 0.8 / max(n_gpus, 1)
-    sub_bar_w = cluster_w / (n_methods + 0.5)
-    vfs = _val_fontsize(n_gpus * n_methods)
+        # Collect values per method per GPU
+        vals_per_method: dict[str, list[float | None]] = {}
+        eff_per_method: dict[str, list[float | None]] = {}
+        for method, n_tag, _ in method_specs:
+            key_t = f"multigpu_{model_key}_{method}_{n_tag}_samples_per_sec"
+            key_e = f"multigpu_{model_key}_{method}_{n_tag}_eff_pct"
+            vals_per_method[method] = d.get(key_t)
+            eff_per_method[method] = d.get(key_e)
 
-    method_shades = [0.7, 1.0, 1.3]  # darker for 1-GPU, normal for DDP, lighter for FSDP
-    all_vals: list[float] = []
+        # X-axis: one group per GPU
+        cats = gpu_names
+        n_cats = len(cats)
 
-    for gi, gname in enumerate(gpu_names):
-        base_color = GPU_COLORS[gi % len(GPU_COLORS)]
-        base_rgb = mcolors.to_rgb(base_color)
-        cluster_offset = (gi - (n_gpus - 1) / 2) * cluster_w
+        fig_w = _fig_w(n_methods, n_cats)
+        fig, ax = plt.subplots(figsize=(fig_w, BASE_FIG_H))
+        fig.suptitle(f"{S('multigpu_title')} — {model_label}",
+                     fontsize=22, fontweight="bold",
+                     color=TEXT_COLOR, y=0.97)
+        fig.text(0.97, 0.935, S("higher_better"), ha="right", va="top",
+                 fontsize=10, color=ACCENT_GREEN, alpha=0.9)
+        _watermark(fig)
+
+        x = np.arange(n_cats)
+        bar_w = 0.8 / n_methods
+        vfs = _val_fontsize(n_gpus * n_methods)
+
+        all_vals: list[float] = []
 
         for mi, (method, _, loc_key) in enumerate(method_specs):
+            bar_offset = (mi - (n_methods - 1) / 2) * bar_w
             shade = method_shades[mi]
-            bar_rgb = tuple(min(1.0, c * shade) for c in base_rgb)
-            bar_offset = cluster_offset + (mi - (n_methods - 1) / 2) * sub_bar_w
 
-            vals = [
-                vals_per_method[method][ci][gi]
-                if vals_per_method[method][ci][gi] is not None else 0
-                for ci in range(n_cats)
-            ]
+            vals: list[float] = []
+            effs: list[float | None] = []
+            bar_colors: list[tuple] = []
+
+            for gi in range(n_gpus):
+                v = vals_per_method[method][gi]
+                vals.append(v if v is not None else 0)
+                effs.append(eff_per_method[method][gi])
+                base_rgb = mcolors.to_rgb(GPU_COLORS[gi % len(GPU_COLORS)])
+                bar_colors.append(tuple(min(1.0, c * shade) for c in base_rgb))
+
             all_vals.extend(vals)
 
-            legend_label = f"{gname} — {S(loc_key)}"
-            bars = ax.bar(x + bar_offset, vals, sub_bar_w * 0.9,
-                          color=bar_rgb, edgecolor=BG_COLOR, linewidth=1,
-                          zorder=3, label=legend_label)
+            bars = ax.bar(x + bar_offset, vals, bar_w * 0.9,
+                          color=bar_colors, edgecolor=BG_COLOR, linewidth=1,
+                          zorder=3, label=S(loc_key))
 
-            for ci, (bar, v) in enumerate(zip(bars, vals)):
+            for gi, (bar, v) in enumerate(zip(bars, vals)):
                 if v > 0:
-                    # Show efficiency % for multi-GPU methods
-                    eff_list = eff_per_method[method][ci]
-                    eff_v = eff_list[gi] if eff_list[gi] is not None else None
+                    eff_v = effs[gi]
                     if eff_v is not None and method != "single":
                         ann = f"{v:.0f}\n({eff_v:.0f}%)"
                     else:
@@ -1727,17 +1714,20 @@ def chart_dual_gpu(d: ComparisonData, out: Path):
                             fontsize=vfs, color=TEXT_COLOR,
                             fontweight="bold")
 
-    ax.set_xticks(x)
-    ax.set_xticklabels(cats, fontsize=_tick_fontsize(n_gpus))
-    ax.set_ylabel(S("multigpu_ylabel"), fontsize=13)
-    ax.set_title(S("multigpu_subtitle"), fontsize=14, color=ACCENT_BLUE, pad=10)
-    ax.grid(axis="y", linestyle="--", zorder=0)
-    ax.set_axisbelow(True)
-    max_v = max(all_vals) if all_vals else 1
-    ax.set_ylim(0, max_v * 1.28)
-    ax.legend(**_legend_kwargs(n_gpus * n_methods))
-    fig.tight_layout(rect=[0, 0.02, 1, 0.92])
-    _save(fig, out / "cmp_dual_gpu.png")
+        ax.set_xticks(x)
+        ax.set_xticklabels(cats, fontsize=_tick_fontsize(n_gpus))
+        ax.set_ylabel(S("multigpu_ylabel"), fontsize=13)
+        ax.set_title(S("multigpu_subtitle"), fontsize=14,
+                     color=ACCENT_BLUE, pad=10)
+        ax.grid(axis="y", linestyle="--", zorder=0)
+        ax.set_axisbelow(True)
+        max_v = max(all_vals) if all_vals else 1
+        ax.set_ylim(0, max_v * 1.28)
+        ax.legend(**_legend_kwargs(n_methods))
+        fig.tight_layout(rect=[0, 0.02, 1, 0.92])
+
+        safe_name = model_key.replace("-", "_")
+        _save(fig, out / f"cmp_dual_gpu_{safe_name}.png")
 
 
 # ── VRAM Limits ───────────────────────────────────────────────────────────────
