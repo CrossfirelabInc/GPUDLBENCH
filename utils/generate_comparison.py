@@ -1101,9 +1101,32 @@ def chart_llm(d: ComparisonData, out: Path):
     if not tps_keys:
         return
 
+    # Custom display order: DeepSeek 8B, Phi 4, Gemma 2 27B, QwQ 32B
+    _LLM_ORDER = ["deepseek", "phi", "gemma", "qwq"]
+
+    def _order_key(mid: str) -> int:
+        low = mid.lower()
+        for i, prefix in enumerate(_LLM_ORDER):
+            if prefix in low:
+                return i
+        return len(_LLM_ORDER)
+
+    tps_keys.sort(key=_order_key)
+
     def _label(mid: str) -> str:
         name = mid.replace("llm_", "").replace("_tokens_per_sec", "")
-        return "LLM (" + name.replace("_", " ").title() + ")"
+        pretty = name.replace("_", " ").title()
+        # Add parameter counts for known models
+        _PARAMS = {
+            "deepseek r1 distill llama 8b": "8B",
+            "phi 4": "14B",
+            "gemma 2 27b": "27B",
+            "qwq 32b": "32B",
+        }
+        size = _PARAMS.get(pretty.lower(), "")
+        if size:
+            return f"LLM ({pretty} — {size})"
+        return "LLM (" + pretty + ")"
 
     all_gpu_names = d.gpu_names()
     n_gpus = d.n_gpus
