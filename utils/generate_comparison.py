@@ -832,6 +832,15 @@ def _legend_kwargs(n_gpus: int) -> dict:
                 facecolor=CARD_COLOR, edgecolor=GRID_COLOR)
 
 
+def _gpu_name_fontsize(n_gpus: int) -> int:
+    """Font size for GPU name labels rendered inside chart bars."""
+    if n_gpus <= 3:
+        return 8
+    if n_gpus <= 5:
+        return 7
+    return 6
+
+
 # ── Chart helpers ─────────────────────────────────────────────────────────────
 
 def _save(fig, path: Path):
@@ -882,6 +891,7 @@ def _grouped_bar(ax, categories: list[str], gpu_names: list[str],
     total_width = min(0.85, 0.15 * n_gpus + 0.25)
     bar_w = total_width / n_gpus
     vfs = _val_fontsize(n_gpus)
+    gfs = _gpu_name_fontsize(n_gpus)
 
     all_vals = []
     for gi, (gname, gvals) in enumerate(zip(gpu_names, values_per_gpu)):
@@ -896,6 +906,11 @@ def _grouped_bar(ax, categories: list[str], gpu_names: list[str],
                 ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height(),
                         fmt.format(v), ha="center", va="bottom",
                         fontsize=vfs, color=TEXT_COLOR, fontweight="bold")
+                ax.text(bar.get_x() + bar.get_width() / 2,
+                        bar.get_height() * 0.5,
+                        gname, ha="center", va="center",
+                        fontsize=gfs, color=BG_COLOR, fontweight="bold",
+                        alpha=0.85, rotation=90, clip_on=True)
 
     ax.set_xticks(x)
     ax.set_xticklabels(categories, fontsize=_tick_fontsize(n_gpus))
@@ -928,6 +943,7 @@ def _horizontal_grouped_bar(ax, categories: list[str], gpu_names: list[str],
     total_height = min(0.85, 0.15 * n_gpus + 0.25)
     bar_h = total_height / n_gpus
     vfs = _val_fontsize(n_gpus)
+    gfs = _gpu_name_fontsize(n_gpus)
 
     all_vals = []
     for gi, (gname, gvals) in enumerate(zip(gpu_names, values_per_gpu)):
@@ -947,6 +963,10 @@ def _horizontal_grouped_bar(ax, categories: list[str], gpu_names: list[str],
                 ax.text(v + max(all_vals) * 0.01, bar.get_y() + bar.get_height() / 2,
                         label, va="center", fontsize=vfs,
                         color=TEXT_COLOR, fontweight="bold")
+                ax.text(max(all_vals) * 0.01, bar.get_y() + bar.get_height() / 2,
+                        gname, ha="left", va="center",
+                        fontsize=gfs, color=BG_COLOR, fontweight="bold",
+                        alpha=0.85, clip_on=True)
 
     ax.set_yticks(y)
     ax.set_yticklabels(categories, fontsize=_tick_fontsize(n_gpus))
@@ -1119,6 +1139,7 @@ def chart_llm(d: ComparisonData, out: Path):
 
     bar_h = 0.7
     vfs = _val_fontsize(n_gpus)
+    gfs = _gpu_name_fontsize(n_gpus)
     y_positions: list[float] = []
     y_labels: list[str] = []
     bar_colors: list[str] = []
@@ -1146,11 +1167,14 @@ def chart_llm(d: ComparisonData, out: Path):
     all_vals = [v for v in bar_vals if v > 0]
     max_v = max(all_vals) if all_vals else 1
 
-    for i, (yp, val, color) in enumerate(zip(y_positions, bar_vals, bar_colors)):
+    for i, (yp, val, color, ylbl) in enumerate(zip(y_positions, bar_vals, bar_colors, y_labels)):
         ax.barh(yp, val, bar_h, color=color, edgecolor=BG_COLOR,
                 linewidth=1, zorder=3)
         ax.text(val + max_v * 0.01, yp, f"{val:.1f} t/s",
                 va="center", fontsize=vfs, color=TEXT_COLOR, fontweight="bold")
+        ax.text(max_v * 0.01, yp, ylbl, ha="left", va="center",
+                fontsize=gfs, color=BG_COLOR, fontweight="bold",
+                alpha=0.85, clip_on=True)
 
     # Y-axis: GPU names
     ax.set_yticks(y_positions)
@@ -1233,6 +1257,7 @@ def chart_fundamentals(d: ComparisonData, out: Path):
     total_height = min(0.85, 0.15 * n_gpus + 0.25)
     bar_h = total_height / n_gpus
     vfs = _val_fontsize(n_gpus)
+    gfs = _gpu_name_fontsize(n_gpus)
 
     all_vals = []
     for gi, gname in enumerate(d.gpu_names()):
@@ -1247,6 +1272,10 @@ def chart_fundamentals(d: ComparisonData, out: Path):
                 ax.text(v + max(all_vals) * 0.01, bar.get_y() + bar.get_height() / 2,
                         fmt.format(v), va="center",
                         fontsize=vfs, color=TEXT_COLOR, fontweight="bold")
+                ax.text(max(all_vals) * 0.01, bar.get_y() + bar.get_height() / 2,
+                        gname, ha="left", va="center",
+                        fontsize=gfs, color=BG_COLOR, fontweight="bold",
+                        alpha=0.85, clip_on=True)
 
     ax.set_yticks(y)
     ax.set_yticklabels(cats, fontsize=_tick_fontsize(n_gpus))
@@ -1556,6 +1585,7 @@ def chart_relative_performance(d: ComparisonData, out: Path):
     total_height = min(0.85, 0.15 * n_gpus + 0.25)
     bar_h = total_height / n_gpus
     vfs = _val_fontsize(n_gpus)
+    gfs = _gpu_name_fontsize(n_gpus)
 
     all_vals_flat = []
     for gi, gname in enumerate(d.gpu_names()):
@@ -1570,6 +1600,10 @@ def chart_relative_performance(d: ComparisonData, out: Path):
                 ax.text(v + max(all_vals_flat) * 0.01, bar.get_y() + bar.get_height() / 2,
                         f"{v:.2f}x", va="center",
                         fontsize=vfs, color=TEXT_COLOR, fontweight="bold")
+                ax.text(max(all_vals_flat) * 0.01, bar.get_y() + bar.get_height() / 2,
+                        gname, ha="left", va="center",
+                        fontsize=gfs, color=BG_COLOR, fontweight="bold",
+                        alpha=0.85, clip_on=True)
 
     max_v = max(all_vals_flat) if all_vals_flat else 2
     ax.axvline(x=1.0, color=ACCENT_RED, linestyle="--", linewidth=1.5, alpha=0.7, zorder=2)
@@ -1713,6 +1747,7 @@ def chart_cnn_vs_transformer(d: ComparisonData, out: Path):
     total_height = min(0.85, 0.15 * n_gpus + 0.25)
     bar_h = total_height / n_gpus
     vfs = _val_fontsize(n_gpus)
+    gfs = _gpu_name_fontsize(n_gpus)
 
     all_v = []
     for gi, gname in enumerate(gpu_names):
@@ -1727,6 +1762,10 @@ def chart_cnn_vs_transformer(d: ComparisonData, out: Path):
                 ax.text(v + max(all_v) * 0.01, bar.get_y() + bar.get_height() / 2,
                         f"{v:.2f}x", va="center",
                         fontsize=vfs, color=TEXT_COLOR, fontweight="bold")
+                ax.text(max(all_v) * 0.01, bar.get_y() + bar.get_height() / 2,
+                        gname, ha="left", va="center",
+                        fontsize=gfs, color=BG_COLOR, fontweight="bold",
+                        alpha=0.85, clip_on=True)
 
     max_v = max(all_v) if all_v else 2
     ax.axvline(x=1.0, color=ACCENT_RED, linestyle="--", linewidth=1.5, alpha=0.7, zorder=2)
@@ -1810,6 +1849,7 @@ def chart_dual_gpu(d: ComparisonData, out: Path):
 
     n_methods = len(method_specs)
     vfs = _val_fontsize(n_active * n_methods)
+    gfs = _gpu_name_fontsize(n_active)
 
     for pi, (model_key, model_label) in enumerate(valid_models):
         ax = axes[pi]
@@ -1854,6 +1894,11 @@ def chart_dual_gpu(d: ComparisonData, out: Path):
                             bar.get_y() + bar.get_height() / 2,
                             ann, va="center", fontsize=vfs,
                             color=TEXT_COLOR, fontweight="bold")
+                    pad = max(all_vals) * 0.01 if all_vals else 0
+                    ax.text(pad, bar.get_y() + bar.get_height() / 2,
+                            gpu_names[gi_local], ha="left", va="center",
+                            fontsize=gfs, color=BG_COLOR, fontweight="bold",
+                            alpha=0.85, clip_on=True)
 
         ax.set_yticks(y)
         ax.set_yticklabels(cats, fontsize=_tick_fontsize(n_active))
@@ -1926,6 +1971,7 @@ def chart_vram_limits(d: ComparisonData, out: Path):
     total_height = min(0.85, 0.15 * n_gpus + 0.25)
     bar_h = total_height / n_gpus
     vfs = _val_fontsize(n_gpus)
+    gfs = _gpu_name_fontsize(n_gpus)
 
     all_vals: list[float] = []
     for gi, gname in enumerate(d.gpu_names()):
@@ -1941,6 +1987,11 @@ def chart_vram_limits(d: ComparisonData, out: Path):
                         bar.get_y() + bar.get_height() / 2,
                         fmt.format(v), va="center",
                         fontsize=vfs, color=TEXT_COLOR, fontweight="bold")
+                ax.text(max(all_vals) * 0.01,
+                        bar.get_y() + bar.get_height() / 2,
+                        gname, ha="left", va="center",
+                        fontsize=gfs, color=BG_COLOR, fontweight="bold",
+                        alpha=0.85, clip_on=True)
 
     ax.set_yticks(y)
     ax.set_yticklabels(cats, fontsize=_tick_fontsize(n_gpus))
