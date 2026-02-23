@@ -68,9 +68,7 @@ BENCHMARKS = [
     (4,  "NLP Inference (BERT-base, BERT-large)",                "benchmarks/4_inference_nlp.py"),
     (5,  "LLM Token Generation (llama.cpp)",                     "benchmarks/5_llm_tokens_per_sec.py"),
     (6,  "VRAM Limitation Tests",                                "benchmarks/6_vram_limits.py"),
-    (7,  "Compute Stress — GEMM Throughput",                     "benchmarks/7_gemm_stress.py"),
     (8,  "Object Detection (Faster R-CNN + Mask R-CNN)",         "benchmarks/8_training_detection.py"),
-    (9,  "GPU Fundamentals (Bandwidth / FFT / HPC)",             "benchmarks/9_gpu_fundamentals.py"),
     (10, "Multi-GPU Training Scaling (DDP + FSDP)","benchmarks/10_multi_gpu_scaling.py"),
 ]
 
@@ -180,7 +178,7 @@ def main():
 
     skip_set = set(args.skip)
     if args.demo:
-        skip_set |= {6, 9, 10}
+        skip_set |= {6, 10}
 
     # ── Session setup ─────────────────────────────────────────────────
     session_id = make_session_id()

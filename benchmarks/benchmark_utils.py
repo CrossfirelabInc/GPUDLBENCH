@@ -90,7 +90,7 @@ def get_system_info(device_id: int = 0) -> dict:
     # GPU power info
     try:
         r = subprocess.run(
-            ["nvidia-smi",
+            ["nvidia-smi", f"--id={device_id}",
              "--query-gpu=power.limit,power.default_limit,power.max_limit,enforced.power.limit",
              "--format=csv,noheader,nounits"],
             capture_output=True, text=True, timeout=5,

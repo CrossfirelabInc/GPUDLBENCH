@@ -1,89 +1,217 @@
-# GPU Deep Learning Benchmark Suite
+# GPU Yapay Zeka Benchmark Paketi
 
-Vibe Coded by Crossfirelab
+**Crossfirelab** tarafindan gelistirildi — Vibe Coded 🎯
 
-Crossfirelab Benchmark suite for NVIDIA GPUs specially for Deep Learning. Measures training, inference, LLM generation, VRAM limits, compute stress, and multi-GPU scaling. PyTorch + llama.cpp. No Docker required.
+NVIDIA ekran kartlari icin yapay zeka odakli benchmark (performans testi) paketi. Egitim hizi, cikarim hizi, LLM (buyuk dil modeli) token uretimi, VRAM kapasitesi ve cift GPU olcekleme gibi testleri tek komutla calistirir. PyTorch + llama.cpp kullanir, Docker gerektirmez.
 
-Benchmarks:
-1. Vision Training - ResNet-50/101 throughput (FP32/FP16/BF16/FP8)
-2. NLP Training - BERT-base/large throughput (FP32/FP16/BF16/FP8)
-3. Vision Inference - ResNet-50/101 latency + throughput
-4. NLP Inference - BERT-base/large latency + throughput
-5. LLM Tokens/sec - GGUF models via llama.cpp
-6. VRAM Limits - Max model size + context length
-7. GEMM Stress - Peak TFLOPS (FP64/FP32/FP16/BF16/FP8)
-8. Detection Training - Faster/Mask R-CNN
-9. GPU Fundamentals - Memory BW, PCIe, FFT, SpMM, attention
-10. Multi-GPU Scaling - DDP/FSDP efficiency
+---
 
-Requirements: Linux, NVIDIA GPU with CUDA 11.8+, Python 3.9+, 16 GB RAM minimum.
+## Ne Test Ediliyor?
 
-## Setup
+| No | Test | Ne Olcuyor |
+|----|------|-------------|
+| 1 | CNN Egitim (ResNet-50/101) | Saniyede kac goruntu ile egitim yapilabilir |
+| 2 | Transformer Egitim (BERT-Base/Large) | Saniyede kac metin ornegi islenebilir |
+| 3 | CNN Cikarim (ResNet-50/101) | Egitilmis modelle saniyede kac tahmin yapilir |
+| 4 | Transformer Cikarim (BERT-Base/Large) | NLP modeliyle saniyede kac metin analiz edilir |
+| 5 | LLM Token Uretimi (llama.cpp) | Buyuk dil modelleri saniyede kac kelime uretir |
+| 6 | VRAM Kapasite Testi | En buyuk hangi model yuklenebilir, maks baglam uzunlugu |
+| 8 | Nesne Algilama Egitimi (Faster/Mask R-CNN) | Nesne tespiti modellerinin egitim hizi |
+| 10 | Cift GPU Olcekleme (DDP + FSDP) | 2. GPU ne kadar hiz kazandiriyor |
 
-    git clone <repo-url> && cd GPUDLBENCH
-    nano .credentials          # paste HF token from https://huggingface.co/settings/tokens
-    python3 install.py
-    source venv/bin/activate
+---
 
-The .credentials file holds your HuggingFace token (needed for gated model downloads):
+## Gereksinimler
 
-    HF_TOKEN=hf_yourTokenHere
+- **Linux** (Ubuntu 20.04+ onerilir)
+- **NVIDIA ekran karti** (CUDA 11.8 veya uzeri)
+- **Python 3.9+**
+- **16 GB RAM** minimum
+- **Internet baglantisi** (ilk kurulumda model indirme icin)
 
-Install options:
+---
 
-    python3 install.py --skip-llama        # no llama.cpp (skips benchmark 5)
-    python3 install.py --skip-models       # no model downloads
-    python3 install.py --model-set popular # smaller model set (~38 GB vs ~57 GB)
+## Kurulum
 
-## Running
+### 1. Projeyi indirin
 
-    python run_benchmarks.py               # all benchmarks
-    python run_benchmarks.py --skip 5 6 10 # skip specific ones
-    python benchmarks/1_training_vision.py # single benchmark
+```bash
+git clone <repo-url>
+cd GPUDLBENCH
+```
 
-## Results
+### 2. HuggingFace Token olusturun
 
-Each run creates a timestamped folder in results/ with JSON files and a summary. A "latest" symlink points to the most recent run.
+Bazi modelleri indirmek icin HuggingFace hesabiniz gerekiyor:
 
-    python utils/generate_report.py        # per-session markdown report
-    python utils/generate_comparison.py    # extract metrics + comparison charts
+1. https://huggingface.co/settings/tokens adresine gidin
+2. Yeni bir token olusturun (Read yetkisi yeterli)
+3. `.credentials` dosyasini olusturun:
 
-## Configuration
+```bash
+nano .credentials
+```
 
-Edit benchmarks/config.py to change batch sizes, iteration counts, model lists, data paths, or precision modes.
+Icine sunu yazin:
 
-## Troubleshooting
+```
+HF_TOKEN=hf_sizinTokenBuraya
+```
 
-### `no kernel image is available for execution on the device`
+### 3. Kurulumu baslatin
 
-This means your installed PyTorch does not include GPU kernels for your card's architecture.
+```bash
+python3 install.py
+```
 
-**Blackwell GPUs (RTX 5090, RTX 5080, etc. — sm_120):** PyTorch 2.6.0+cu124 does NOT support Blackwell. Re-run the installer — it will auto-detect the architecture and install a compatible PyTorch:
+Bu komut otomatik olarak:
+- Python sanal ortami (venv) olusturur
+- GPU'nuza uygun PyTorch versiyonunu kurar
+- llama.cpp'yi derler (LLM testi icin)
+- Test modellerini indirir (~57 GB)
 
-    python3 install.py
+Kurulum bittikten sonra sanal ortami aktiflestirin:
 
-If stable wheels are not yet available, the installer will try PyTorch nightly automatically.
+```bash
+source venv/bin/activate
+```
 
-### `_Float64x` / `_Float128` / `CMakeDetermineCUDACompiler` errors
+### Kurulum secenekleri
 
-Your host C++ compiler is too old for your glibc headers (common on Ubuntu 24.04+).
+```bash
+python3 install.py --skip-llama        # llama.cpp kurulumunu atla (test 5 calismaz)
+python3 install.py --skip-models       # model indirmeyi atla
+python3 install.py --model-set popular # daha kucuk model seti (~38 GB)
+```
 
-Quick fix:
+---
 
-    sudo apt-get update
-    sudo apt-get install -y gcc-13 g++-13
-    python3 install.py
+## Testleri Calistirma
 
-If your distro `nvidia-cuda-toolkit` is outdated, install from NVIDIA's official CUDA repo and re-run `install.py`.
+### Tum testleri calistir
 
-### GPU swap workflow
+```bash
+python run_benchmarks.py
+```
 
-After physically swapping a GPU (or changing drivers), just re-run:
+Bu komut sirasiyla tum testleri calistirir ve sonuclari `results/` klasorune kaydeder. Tum testler yaklasik 2-4 saat surer.
 
-    python3 install.py
+### Hizli deneme modu
 
-The installer detects GPU/driver/toolchain changes, picks the correct PyTorch version, rebuilds llama.cpp for the new architecture, and revalidates everything.
+Ilk kez deniyorsaniz veya hizli bir test yapmak istiyorsaniz:
 
-## License
+```bash
+python run_benchmarks.py --demo
+```
+
+Demo modu yaklasik 5 dakikada biter — tam sonuclar vermez ama her seyin calistigini dogrulamaniz icin idealdir.
+
+### Belirli testleri atlama
+
+```bash
+python run_benchmarks.py --skip 5 6 10    # LLM, VRAM, cift GPU testlerini atla
+```
+
+### Tek bir testi calistirma
+
+```bash
+python benchmarks/1_training_vision.py     # sadece goruntu egitim testi
+python benchmarks/5_llm_tokens_per_sec.py  # sadece LLM testi
+```
+
+---
+
+## Sonuclari Goruntuleme
+
+Her test calistirmasinda `results/` klasorunde tarih damgali bir klasor olusturulur. En son calistirma `results/latest` kisayolundan erisilebilir.
+
+### Ozet rapor olusturma
+
+```bash
+python utils/generate_report.py
+```
+
+### GPU karsilastirma grafikleri olusturma
+
+Birden fazla GPU test ettiyseniz (farkli oturumlarda), karsilastirma grafikleri olusturabilirsiniz:
+
+```bash
+python utils/generate_comparison.py              # Turkce grafikler (varsayilan)
+python utils/generate_comparison.py --lang en     # Ingilizce grafikler
+```
+
+Grafikler `results/comparison_charts/` klasorune kaydedilir.
+
+---
+
+## Cift GPU Kurulumu
+
+Sisteminizde 2 ayni GPU varsa test 10 (cift GPU olcekleme) otomatik olarak calisir. Eger GPU'lariniz farkliysa, hangi GPU'yu test etmek istediginiz sorulur ve cift GPU testi atlanir.
+
+---
+
+## Ayarlar
+
+Batch boyutlari, iterasyon sayilari, model listeleri gibi ayarlari degistirmek isterseniz:
+
+```bash
+nano benchmarks/config.py
+```
+
+---
+
+## Sik Karsilasilan Sorunlar
+
+### "no kernel image is available" hatasi
+
+GPU'nuzun mimarisi icin uygun PyTorch kurulu degil. Cozum:
+
+```bash
+python3 install.py
+```
+
+Kurulum scripti GPU'nuzu otomatik algilar ve uygun surumu kurar. Blackwell GPU'lar (RTX 5090, 5080 vb.) icin gerekirse nightly surum otomatik denenir.
+
+### Derleme hatalari (`_Float64x`, `CMake` hatalari)
+
+C++ derleyiciniz eski olabilir. Cozum:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y gcc-13 g++-13
+python3 install.py
+```
+
+### GPU degisikligi yaptim
+
+Ekran kartini fiziksel olarak degistirdikten sonra:
+
+```bash
+python3 install.py
+```
+
+Kurulum scripti yeni GPU'yu algilar, PyTorch'u gunceller ve llama.cpp'yi yeniden derler.
+
+---
+
+## Uretilen Grafikler
+
+Karsilastirma araci su grafikleri olusturur:
+
+1. **CNN Egitim Verimi** — ResNet-50/101
+2. **Transformer Egitim Verimi** — BERT-Base/Large
+3. **CNN Cikarim Verimi** — ResNet-50/101
+4. **Transformer Cikarim Verimi** — BERT-Base/Large
+5. **LLM Performansi** — Token uretim hizi
+6. **Nesne Algilama** — Faster/Mask R-CNN
+7. **Watt Basina Performans** — Enerji verimliligi
+8. **Gorece Performans** — GPU'lar arasi kat farki
+9. **CNN vs Transformer** — Mimari karsilastirma
+10. **Cift GPU Olcekleme** — DDP/FSDP hizlanma
+11. **GPU Karsilastirma Karti** — Tum sonuclarin ozet tablosu
+
+---
+
+## Lisans
 
 MIT

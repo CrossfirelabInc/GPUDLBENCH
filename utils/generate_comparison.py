@@ -84,19 +84,19 @@ _STRINGS: dict[str, dict[str, str]] = {
         "bw_high_latency_low":      "Bant genişliği \u25b2  Gecikme \u25bc",
         # — Training Vision
         "train_vision_title":       "Eğitim Verimi \u2014 Görüntü",
-        "train_vision_subtitle":    "ResNet-50 / ResNet-101",
+        "train_vision_subtitle":    "CNN (ResNet-50 / ResNet-101) — Maks. Verim",
         "train_vision_ylabel":      "Görüntü / sn",
         # — Training NLP
         "train_nlp_title":          "Eğitim Verimi \u2014 NLP (Doğal Dil İşleme)",
-        "train_nlp_subtitle":       "BERT-Base / BERT-Large",
+        "train_nlp_subtitle":       "Transformer (BERT-Base / BERT-Large) — Maks. Verim",
         "train_nlp_ylabel":         "Örnek / sn",
         # — Inference Vision
         "infer_vision_title":       "Çıkarım Verimi \u2014 Görüntü",
-        "infer_vision_subtitle":    "ResNet-50 / ResNet-101",
+        "infer_vision_subtitle":    "CNN (ResNet-50 / ResNet-101) — Maks. Verim",
         "infer_vision_ylabel":      "Görüntü / sn",
         # — Inference NLP
         "infer_nlp_title":          "Çıkarım Verimi \u2014 NLP (Doğal Dil İşleme)",
-        "infer_nlp_subtitle":       "BERT-Base / BERT-Large",
+        "infer_nlp_subtitle":       "Transformer (BERT-Base / BERT-Large) — Maks. Verim",
         "infer_nlp_ylabel":         "Örnek / sn",
         # — LLM
         "llm_title":                "LLM (Büyük Dil Modeli) Performansı",
@@ -130,15 +130,16 @@ _STRINGS: dict[str, dict[str, str]] = {
         # — Scorecard
         "score_title":              "GPU Karşılaştırma Kartı",
         "score_best":               "\u2605 EN İYİ",
-        "score_resnet_train":       "ResNet-50 Eğitim FP16",
-        "score_resnet_infer":       "ResNet-50 Çıkarım FP16",
-        "score_bert_train":         "BERT-Base Eğitim BF16",
+        "score_resnet_train":       "CNN (ResNet-50) Eğitim FP16",
+        "score_bert_train":         "Transformer (BERT-Base) Eğitim BF16",
         "score_gemm":               "GEMM BF16 Zirve",
         "score_membw":              "Bellek Bant Genişliği",
         "score_llm_speed":          "En İyi LLM Hızı",
         "score_llm_label":          "LLM",
         "score_vram_model":         "Maks. Yüklenebilir Model",
-        "score_vram_ctx":           "Maks. Bağlam Uzunluğu",
+        "score_vram_ctx":           "Maks. Bağlam Uzunluğu (3B)",
+        "score_max_train_tput":     "Maks. Eğitim Verimi",
+        "score_max_infer_tput":     "Maks. Çıkarım Verimi",
         "score_power":              "Ort. Güç Tüketimi",
         "score_temp":               "Ort. Sıcaklık",
         "score_dlperf":             "DLPerf Skoru",
@@ -194,19 +195,19 @@ _STRINGS: dict[str, dict[str, str]] = {
         "bw_high_latency_low":      "BW/Throughput \u25b2  Latency \u25bc",
         # — Training Vision
         "train_vision_title":       "Training Throughput \u2014 Vision",
-        "train_vision_subtitle":    "ResNet-50 / ResNet-101",
+        "train_vision_subtitle":    "CNN (ResNet-50 / ResNet-101) — Max Throughput",
         "train_vision_ylabel":      "Images / sec",
         # — Training NLP
         "train_nlp_title":          "Training Throughput \u2014 NLP",
-        "train_nlp_subtitle":       "BERT-Base / BERT-Large",
+        "train_nlp_subtitle":       "Transformer (BERT-Base / BERT-Large) — Max Throughput",
         "train_nlp_ylabel":         "Samples / sec",
         # — Inference Vision
         "infer_vision_title":       "Inference Throughput \u2014 Vision",
-        "infer_vision_subtitle":    "ResNet-50 / ResNet-101",
+        "infer_vision_subtitle":    "CNN (ResNet-50 / ResNet-101) — Max Throughput",
         "infer_vision_ylabel":      "Images / sec",
         # — Inference NLP
         "infer_nlp_title":          "Inference Throughput \u2014 NLP",
-        "infer_nlp_subtitle":       "BERT-Base / BERT-Large",
+        "infer_nlp_subtitle":       "Transformer (BERT-Base / BERT-Large) — Max Throughput",
         "infer_nlp_ylabel":         "Samples / sec",
         # — LLM
         "llm_title":                "LLM Performance",
@@ -240,15 +241,16 @@ _STRINGS: dict[str, dict[str, str]] = {
         # — Scorecard
         "score_title":              "GPU Scorecard",
         "score_best":               "\u2605 BEST",
-        "score_resnet_train":       "ResNet-50 Train FP16",
-        "score_resnet_infer":       "ResNet-50 Infer FP16",
-        "score_bert_train":         "BERT-Base Train BF16",
+        "score_resnet_train":       "CNN (ResNet-50) Train FP16",
+        "score_bert_train":         "Transformer (BERT-Base) Train BF16",
         "score_gemm":               "GEMM BF16 Peak",
         "score_membw":              "Memory Bandwidth",
         "score_llm_speed":          "Best LLM Speed",
         "score_llm_label":          "LLM",
         "score_vram_model":         "Max Loadable Model",
-        "score_vram_ctx":           "Max Context Length",
+        "score_vram_ctx":           "Max Context Length (3B)",
+        "score_max_train_tput":     "Max Training Throughput",
+        "score_max_infer_tput":     "Max Inference Throughput",
         "score_power":              "Avg Power Draw",
         "score_temp":               "Avg Temperature",
         "score_dlperf":             "DLPerf Score",
@@ -568,9 +570,7 @@ _EXTRACTORS = {
     "inference_nlp.json":      extract_inference_nlp,
     "llm_tokens_per_sec.json": extract_llm_tokens,
     "vram_limits.json":        extract_vram_limits,
-    "gemm_stress.json":        extract_gemm_stress,
     "training_detection.json": extract_training_detection,
-    "gpu_fundamentals.json":   extract_gpu_fundamentals,
     "multi_gpu_scaling.json":  extract_multi_gpu_scaling,
 }
 
@@ -745,8 +745,6 @@ class ComparisonData:
         "train_nlp_bert-large_bf16_samples_per_sec",
         "infer_vision_resnet50_fp16_img_per_sec",
         "infer_nlp_bert-base_bf16_samples_per_sec",
-        "gemm_bf16_peak_tflops",
-        "fund_d2d_bw_peak_gb_s",
     ]
 
     def __init__(self, path: Path):
@@ -984,11 +982,12 @@ def _build_bs_annotations(d: "ComparisonData", bs_keys: list[str]) -> list[list[
 
 def chart_training_vision(d: ComparisonData, out: Path):
     cats, keys, bs_keys = [], [], []
+    _model_labels = {"resnet50": "CNN (ResNet-50)", "resnet101": "CNN (ResNet-101)"}
     for model in ["resnet50", "resnet101"]:
         for prec in ["fp32", "fp16", "bf16"]:
             mid = f"train_vision_{model}_{prec}_img_per_sec"
             if any(v is not None for v in d.get(mid)):
-                cats.append(f"{model.upper()} {prec.upper()}")
+                cats.append(f"{_model_labels[model]} {prec.upper()}")
                 keys.append(mid)
                 bs_keys.append(f"train_vision_{model}_{prec}_best_bs")
     if not cats:
@@ -1006,11 +1005,12 @@ def chart_training_vision(d: ComparisonData, out: Path):
 
 def chart_training_nlp(d: ComparisonData, out: Path):
     cats, keys, bs_keys = [], [], []
+    _model_labels = {"bert-base": "Transformer (BERT-Base)", "bert-large": "Transformer (BERT-Large)"}
     for model in ["bert-base", "bert-large"]:
         for prec in ["fp32", "fp16", "bf16"]:
             mid = f"train_nlp_{model}_{prec}_samples_per_sec"
             if any(v is not None for v in d.get(mid)):
-                cats.append(f"{model.upper()} {prec.upper()}")
+                cats.append(f"{_model_labels[model]} {prec.upper()}")
                 keys.append(mid)
                 bs_keys.append(f"train_nlp_{model}_{prec}_best_bs")
     if not cats:
@@ -1028,11 +1028,12 @@ def chart_training_nlp(d: ComparisonData, out: Path):
 
 def chart_inference_vision(d: ComparisonData, out: Path):
     cats, keys, bs_keys = [], [], []
+    _model_labels = {"resnet50": "CNN (ResNet-50)", "resnet101": "CNN (ResNet-101)"}
     for model in ["resnet50", "resnet101"]:
         for prec in ["fp32", "fp16", "bf16"]:
             mid = f"infer_vision_{model}_{prec}_img_per_sec"
             if any(v is not None for v in d.get(mid)):
-                cats.append(f"{model.upper()} {prec.upper()}")
+                cats.append(f"{_model_labels[model]} {prec.upper()}")
                 keys.append(mid)
                 bs_keys.append(f"infer_vision_{model}_{prec}_best_bs")
     if not cats:
@@ -1050,11 +1051,12 @@ def chart_inference_vision(d: ComparisonData, out: Path):
 
 def chart_inference_nlp(d: ComparisonData, out: Path):
     cats, keys, bs_keys = [], [], []
+    _model_labels = {"bert-base": "Transformer (BERT-Base)", "bert-large": "Transformer (BERT-Large)"}
     for model in ["bert-base", "bert-large"]:
         for prec in ["fp32", "fp16", "bf16"]:
             mid = f"infer_nlp_{model}_{prec}_samples_per_sec"
             if any(v is not None for v in d.get(mid)):
-                cats.append(f"{model.upper()} {prec.upper()}")
+                cats.append(f"{_model_labels[model]} {prec.upper()}")
                 keys.append(mid)
                 bs_keys.append(f"infer_nlp_{model}_{prec}_best_bs")
     if not cats:
@@ -1071,50 +1073,114 @@ def chart_inference_nlp(d: ComparisonData, out: Path):
 
 
 def chart_llm(d: ComparisonData, out: Path):
+    """LLM token generation chart — only shows bars for GPUs that have data
+    for each model, eliminating empty gaps."""
     tps_keys = sorted([m for m in d.metric_ids()
                        if m.startswith("llm_") and m.endswith("_tokens_per_sec")
                        and m != "llm_best_tokens_per_sec"])
-    ttft_keys = sorted([m for m in d.metric_ids()
-                        if m.startswith("llm_") and m.endswith("_ttft_ms")])
     if not tps_keys:
         return
 
     def _label(mid: str) -> str:
-        name = mid.replace("llm_", "").replace("_tokens_per_sec", "").replace("_ttft_ms", "")
-        return name.replace("_", " ").title()
+        name = mid.replace("llm_", "").replace("_tokens_per_sec", "")
+        return "LLM (" + name.replace("_", " ").title() + ")"
 
-    has_ttft = bool(ttft_keys)
-    n_axes = 2 if has_ttft else 1
-    widths = [3, 2] if has_ttft else None
-    fig, axes = _standard_fig(S("llm_title"), "", ACCENT_GREEN,
-                              d.n_gpus, len(tps_keys),
-                              n_axes=n_axes, width_ratios=widths)
-    # Override direction texts for LLM (two separate indicators)
-    # Remove the default empty direction text and add two
-    if has_ttft:
-        fig.texts[1].set_text("")  # clear default direction
-        fig.text(0.35, 0.935, S("llm_higher"), ha="center", va="top",
-                 fontsize=10, color=ACCENT_GREEN, alpha=0.9)
-        fig.text(0.80, 0.935, S("llm_lower"), ha="center", va="top",
-                 fontsize=10, color=ACCENT_ORANGE, alpha=0.9)
-        ax1, ax2 = axes
-    else:
-        fig.texts[1].set_text(S("llm_higher"))
-        fig.texts[1].set_color(ACCENT_GREEN)
-        ax1 = axes
+    all_gpu_names = d.gpu_names()
+    n_gpus = d.n_gpus
 
-    cats_tps = [_label(m) for m in tps_keys]
-    vals_tps = [[d.get(m)[gi] for m in tps_keys] for gi in range(d.n_gpus)]
-    _horizontal_grouped_bar(ax1, cats_tps, d.gpu_names(), vals_tps,
-                            S("llm_xlabel_tps"), S("llm_speed"),
-                            fmt="{:.1f}")
+    # Build compact model data: only GPUs with data per model
+    model_data: list[tuple[str, list[tuple[int, str, float]]]] = []
+    for mk in tps_keys:
+        label = _label(mk)
+        vals = d.get(mk)
+        gpu_bars = []
+        for gi in range(n_gpus):
+            if vals[gi] is not None and vals[gi] > 0:
+                gpu_bars.append((gi, all_gpu_names[gi], vals[gi]))
+        if gpu_bars:
+            model_data.append((label, gpu_bars))
 
-    if has_ttft:
-        cats_ttft = [_label(m) for m in ttft_keys]
-        vals_ttft = [[d.get(m)[gi] for m in ttft_keys] for gi in range(d.n_gpus)]
-        _horizontal_grouped_bar(ax2, cats_ttft, d.gpu_names(), vals_ttft,
-                                S("llm_xlabel_ttft"), S("llm_ttft"),
-                                fmt="{:.0f}")
+    if not model_data:
+        return
+
+    # Calculate total number of bars for figure height
+    total_bars = sum(len(bars) for _, bars in model_data)
+    # Add spacing between model groups
+    total_rows = total_bars + len(model_data) - 1
+
+    fig_h = max(BASE_FIG_H, total_rows * 0.55 + 2)
+    fig_w = _fig_w(n_gpus, total_rows)
+    fig, ax = plt.subplots(figsize=(fig_w, fig_h))
+    fig.suptitle(S("llm_title"), fontsize=22, fontweight="bold",
+                 color=TEXT_COLOR, y=0.97)
+    fig.text(0.97, 0.935, S("llm_higher"), ha="right", va="top",
+             fontsize=10, color=ACCENT_GREEN, alpha=0.9)
+    _watermark(fig)
+
+    bar_h = 0.7
+    vfs = _val_fontsize(n_gpus)
+    y_positions: list[float] = []
+    y_labels: list[str] = []
+    bar_colors: list[str] = []
+    bar_vals: list[float] = []
+
+    y_pos = 0
+    model_label_positions: list[tuple[float, str]] = []  # (y_center, label)
+
+    for mi, (model_label, gpu_bars) in enumerate(model_data):
+        if mi > 0:
+            y_pos += 0.8  # gap between model groups
+
+        group_start = y_pos
+        for gi_orig, gname, val in gpu_bars:
+            y_positions.append(y_pos)
+            y_labels.append(gname)
+            bar_colors.append(GPU_COLORS[gi_orig % len(GPU_COLORS)])
+            bar_vals.append(val)
+            y_pos += 1.0
+
+        group_center = (group_start + y_pos - 1.0) / 2
+        model_label_positions.append((group_center, model_label))
+
+    # Draw bars
+    all_vals = [v for v in bar_vals if v > 0]
+    max_v = max(all_vals) if all_vals else 1
+
+    for i, (yp, val, color) in enumerate(zip(y_positions, bar_vals, bar_colors)):
+        ax.barh(yp, val, bar_h, color=color, edgecolor=BG_COLOR,
+                linewidth=1, zorder=3)
+        ax.text(val + max_v * 0.01, yp, f"{val:.1f} t/s",
+                va="center", fontsize=vfs, color=TEXT_COLOR, fontweight="bold")
+
+    # Y-axis: GPU names
+    ax.set_yticks(y_positions)
+    ax.set_yticklabels(y_labels, fontsize=_tick_fontsize(n_gpus))
+    ax.invert_yaxis()
+
+    # Model group labels on the right side
+    for yc, label in model_label_positions:
+        ax.text(max_v * 1.28, yc, label, va="center", ha="right",
+                fontsize=11, color=ACCENT_BLUE, fontweight="bold",
+                bbox=dict(boxstyle="round,pad=0.3", facecolor=CARD_COLOR,
+                          edgecolor=ACCENT_BLUE, alpha=0.8))
+
+    ax.set_xlabel(S("llm_xlabel_tps"), fontsize=13)
+    ax.set_title(S("llm_speed"), fontsize=14, color=ACCENT_BLUE, pad=10)
+    ax.grid(axis="x", linestyle="--", zorder=0)
+    ax.set_axisbelow(True)
+    ax.set_xlim(0, max_v * 1.35)
+
+    # Legend with GPU colors (unique GPUs only)
+    seen = set()
+    handles = []
+    for gi in range(n_gpus):
+        if gi not in seen:
+            seen.add(gi)
+            handles.append(plt.Rectangle((0, 0), 1, 1,
+                           fc=GPU_COLORS[gi % len(GPU_COLORS)],
+                           label=all_gpu_names[gi]))
+    ax.legend(handles=handles, **_legend_kwargs(n_gpus))
+
     fig.tight_layout(rect=[0, 0.02, 1, 0.92])
     _save(fig, out / "cmp_llm.png")
 
@@ -1197,13 +1263,15 @@ def chart_fundamentals(d: ComparisonData, out: Path):
 
 def chart_detection(d: ComparisonData, out: Path):
     cats, keys, bs_keys = [], [], []
+    _model_labels = {
+        "faster_rcnn_resnet50": "CNN (Faster R-CNN)",
+        "mask_rcnn_resnet50": "CNN (Mask R-CNN)",
+    }
     for model in ["faster_rcnn_resnet50", "mask_rcnn_resnet50"]:
         for prec in ["fp32", "fp16", "bf16"]:
             mid = f"detect_{model}_{prec}_img_per_sec"
             if any(v is not None for v in d.get(mid)):
-                nice = model.replace("faster_rcnn_resnet50", "Faster R-CNN") \
-                            .replace("mask_rcnn_resnet50", "Mask R-CNN")
-                cats.append(f"{nice}\n{prec.upper()}")
+                cats.append(f"{_model_labels[model]}\n{prec.upper()}")
                 keys.append(mid)
                 bs_keys.append(f"detect_{model}_{prec}_best_bs")
     if not cats:
@@ -1443,11 +1511,9 @@ def chart_power_efficiency(d: ComparisonData, out: Path):
 def chart_relative_performance(d: ComparisonData, out: Path):
     """Lowest-scoring GPU = 1.0x baseline, show speedup for others."""
     metric_specs = [
-        ("train_vision_resnet50_fp16_img_per_sec",     "ResNet-50 Train FP16"),
-        ("train_nlp_bert-base_bf16_samples_per_sec",   "BERT-Base Train BF16"),
-        ("infer_vision_resnet50_fp16_img_per_sec",     "ResNet-50 Infer FP16"),
-        ("gemm_bf16_peak_tflops",                      "GEMM BF16"),
-        ("fund_d2d_bw_peak_gb_s",                      "Mem BW"),
+        ("train_vision_resnet50_fp16_img_per_sec",     "CNN (ResNet-50) Train FP16"),
+        ("train_nlp_bert-base_bf16_samples_per_sec",   "Transformer (BERT-Base) Train BF16"),
+        ("infer_vision_resnet50_fp16_img_per_sec",     "CNN (ResNet-50) Infer FP16"),
     ]
 
     # Add best LLM metric
@@ -1457,7 +1523,7 @@ def chart_relative_performance(d: ComparisonData, out: Path):
     if tps_keys:
         best_key = max(tps_keys, key=lambda m: sum(v or 0 for v in d.get(m)))
         name = best_key.replace("llm_", "").replace("_tokens_per_sec", "").replace("_", " ").title()
-        metric_specs.append((best_key, f"LLM {name}"))
+        metric_specs.append((best_key, f"LLM ({name})"))
 
     cats, rel_per_gpu = [], []
     for mid, label in metric_specs:
@@ -1682,106 +1748,136 @@ def chart_cnn_vs_transformer(d: ComparisonData, out: Path):
 # ── Enhanced Dual-GPU Charts (per model) ─────────────────────────────────────
 
 def chart_dual_gpu(d: ComparisonData, out: Path):
-    """Generate one chart per model: 1-GPU vs 2-GPU DDP vs 2-GPU FSDP."""
+    """Single combined horizontal chart for multi-GPU scaling.
+    Three panels (one per model), horizontal bars: 1-GPU vs 2-GPU DDP vs 2-GPU FSDP.
+    Only includes GPUs that actually ran benchmark 10 (multi-GPU scaling).
+    """
     model_specs = [
-        ("resnet50",   "ResNet-50"),
-        ("bert_base",  "BERT-base"),
-        ("gpt2_large", "GPT-2 Large"),
+        ("resnet50",   "CNN (ResNet-50)"),
+        ("bert_base",  "Transformer (BERT-Base)"),
+        ("gpt2_large", "Transformer (GPT-2 Large)"),
     ]
 
     method_specs = [
-        ("single", "1gpu", "multigpu_1gpu"),
-        ("ddp",    "2gpu", "multigpu_ddp"),
-        ("fsdp",   "2gpu", "multigpu_fsdp"),
+        ("single", "1gpu", S("multigpu_1gpu"),  0.7),
+        ("ddp",    "2gpu", S("multigpu_ddp"),    1.0),
+        ("fsdp",   "2gpu", S("multigpu_fsdp"),   1.3),
     ]
 
-    n_gpus = d.n_gpus
-    gpu_names = d.gpu_names()
-    n_methods = len(method_specs)
-    method_shades = [0.7, 1.0, 1.3]
+    # Determine which GPUs actually have multi-GPU data
+    all_gpu_names = d.gpu_names()
+    has_multigpu = []
+    for gi in range(d.n_gpus):
+        has_any = False
+        for mk, ml in model_specs:
+            key = f"multigpu_{mk}_single_1gpu_samples_per_sec"
+            v = d.get(key)[gi]
+            if v is not None:
+                has_any = True
+                break
+        has_multigpu.append(has_any)
 
+    active_indices = [gi for gi, has in enumerate(has_multigpu) if has]
+    if not active_indices:
+        return
+
+    n_active = len(active_indices)
+    gpu_names = [all_gpu_names[gi] for gi in active_indices]
+
+    # Check which models have data
+    valid_models = []
     for model_key, model_label in model_specs:
         key_single = f"multigpu_{model_key}_single_1gpu_samples_per_sec"
-        v_single = d.get(key_single)
-        if all(v is None for v in v_single):
-            continue
+        v_single = [d.get(key_single)[gi] for gi in active_indices]
+        if any(v is not None for v in v_single):
+            valid_models.append((model_key, model_label))
 
-        # Collect values per method per GPU
-        vals_per_method: dict[str, list[float | None]] = {}
-        eff_per_method: dict[str, list[float | None]] = {}
-        for method, n_tag, _ in method_specs:
-            key_t = f"multigpu_{model_key}_{method}_{n_tag}_samples_per_sec"
-            key_e = f"multigpu_{model_key}_{method}_{n_tag}_eff_pct"
-            vals_per_method[method] = d.get(key_t)
-            eff_per_method[method] = d.get(key_e)
+    if not valid_models:
+        return
 
-        # X-axis: one group per GPU
-        cats = gpu_names
-        n_cats = len(cats)
+    n_panels = len(valid_models)
+    fig_w = max(BASE_FIG_W, 6 * n_panels)
+    fig_h = max(BASE_FIG_H, 2.5 * n_active * len(method_specs) + 3)
+    fig, axes = plt.subplots(1, n_panels, figsize=(fig_w, fig_h))
+    if n_panels == 1:
+        axes = [axes]
 
-        fig_w = _fig_w(n_methods, n_cats)
-        fig, ax = plt.subplots(figsize=(fig_w, BASE_FIG_H))
-        fig.suptitle(f"{S('multigpu_title')} — {model_label}",
-                     fontsize=22, fontweight="bold",
-                     color=TEXT_COLOR, y=0.97)
-        fig.text(0.97, 0.935, S("higher_better"), ha="right", va="top",
-                 fontsize=10, color=ACCENT_GREEN, alpha=0.9)
-        _watermark(fig)
+    fig.suptitle(S("multigpu_title"), fontsize=22, fontweight="bold",
+                 color=TEXT_COLOR, y=0.97)
+    fig.text(0.97, 0.935, S("higher_better"), ha="right", va="top",
+             fontsize=10, color=ACCENT_GREEN, alpha=0.9)
+    _watermark(fig)
 
-        x = np.arange(n_cats)
-        bar_w = 0.8 / n_methods
-        vfs = _val_fontsize(n_gpus * n_methods)
+    n_methods = len(method_specs)
+    vfs = _val_fontsize(n_active * n_methods)
+
+    for pi, (model_key, model_label) in enumerate(valid_models):
+        ax = axes[pi]
+
+        # Collect values
+        cats = [loc_label for _, _, loc_label, _ in method_specs]
+        y = np.arange(n_methods)
+        total_height = min(0.85, 0.15 * n_active + 0.25)
+        bar_h = total_height / n_active
 
         all_vals: list[float] = []
-
-        for mi, (method, _, loc_key) in enumerate(method_specs):
-            bar_offset = (mi - (n_methods - 1) / 2) * bar_w
-            shade = method_shades[mi]
+        for gi_local, gi_global in enumerate(active_indices):
+            offset = (gi_local - (n_active - 1) / 2) * bar_h
+            base_rgb = mcolors.to_rgb(GPU_COLORS[gi_global % len(GPU_COLORS)])
 
             vals: list[float] = []
-            effs: list[float | None] = []
-            bar_colors: list[tuple] = []
-
-            for gi in range(n_gpus):
-                v = vals_per_method[method][gi]
+            effs: list[str] = []
+            for method, n_tag, _, shade in method_specs:
+                key_t = f"multigpu_{model_key}_{method}_{n_tag}_samples_per_sec"
+                key_e = f"multigpu_{model_key}_{method}_{n_tag}_eff_pct"
+                v = d.get(key_t)[gi_global]
+                e = d.get(key_e)[gi_global]
                 vals.append(v if v is not None else 0)
-                effs.append(eff_per_method[method][gi])
-                base_rgb = mcolors.to_rgb(GPU_COLORS[gi % len(GPU_COLORS)])
-                bar_colors.append(tuple(min(1.0, c * shade) for c in base_rgb))
+                if e is not None and method != "single":
+                    effs.append(f"{e:.0f}%")
+                else:
+                    effs.append("")
 
             all_vals.extend(vals)
+            bar_color = tuple(min(1.0, c * 1.0) for c in base_rgb)
 
-            bars = ax.bar(x + bar_offset, vals, bar_w * 0.9,
-                          color=bar_colors, edgecolor=BG_COLOR, linewidth=1,
-                          zorder=3, label=S(loc_key))
+            bars = ax.barh(y + offset, vals, bar_h * 0.88, color=bar_color,
+                           edgecolor=BG_COLOR, linewidth=1, zorder=3,
+                           label=gpu_names[gi_local] if pi == 0 else None)
 
-            for gi, (bar, v) in enumerate(zip(bars, vals)):
+            for ci, (bar, v, eff) in enumerate(zip(bars, vals, effs)):
                 if v > 0:
-                    eff_v = effs[gi]
-                    if eff_v is not None and method != "single":
-                        ann = f"{v:.0f}\n({eff_v:.0f}%)"
-                    else:
-                        ann = f"{v:.0f}"
-                    ax.text(bar.get_x() + bar.get_width() / 2,
-                            bar.get_height(),
-                            ann, ha="center", va="bottom",
-                            fontsize=vfs, color=TEXT_COLOR,
-                            fontweight="bold")
+                    ann = f"{v:.0f}"
+                    if eff:
+                        ann += f" ({eff})"
+                    ax.text(v + max(all_vals) * 0.01 if all_vals else v * 0.01,
+                            bar.get_y() + bar.get_height() / 2,
+                            ann, va="center", fontsize=vfs,
+                            color=TEXT_COLOR, fontweight="bold")
 
-        ax.set_xticks(x)
-        ax.set_xticklabels(cats, fontsize=_tick_fontsize(n_gpus))
-        ax.set_ylabel(S("multigpu_ylabel"), fontsize=13)
-        ax.set_title(S("multigpu_subtitle"), fontsize=14,
-                     color=ACCENT_BLUE, pad=10)
-        ax.grid(axis="y", linestyle="--", zorder=0)
+        ax.set_yticks(y)
+        ax.set_yticklabels(cats, fontsize=_tick_fontsize(n_active))
+        ax.set_xlabel(S("multigpu_ylabel"), fontsize=11)
+        ax.set_title(model_label, fontsize=14, color=ACCENT_BLUE, pad=10)
+        ax.grid(axis="x", linestyle="--", zorder=0)
         ax.set_axisbelow(True)
         max_v = max(all_vals) if all_vals else 1
-        ax.set_ylim(0, max_v * 1.28)
-        ax.legend(**_legend_kwargs(n_methods))
-        fig.tight_layout(rect=[0, 0.02, 1, 0.92])
+        ax.set_xlim(0, max_v * 1.35)
+        ax.invert_yaxis()
 
-        safe_name = model_key.replace("-", "_")
-        _save(fig, out / f"cmp_dual_gpu_{safe_name}.png")
+    # Single legend for all panels
+    if n_active > 1:
+        handles = []
+        for gi_local, gi_global in enumerate(active_indices):
+            handles.append(plt.Rectangle((0, 0), 1, 1,
+                           fc=GPU_COLORS[gi_global % len(GPU_COLORS)],
+                           label=gpu_names[gi_local]))
+        axes[-1].legend(handles=handles, **_legend_kwargs(n_active))
+
+    fig.text(0.5, 0.92, S("multigpu_subtitle"), ha="center",
+             fontsize=13, color=SUBTEXT_COLOR)
+    fig.tight_layout(rect=[0, 0.02, 1, 0.90])
+    _save(fig, out / "cmp_dual_gpu.png")
 
 
 # ── VRAM Limits ───────────────────────────────────────────────────────────────
@@ -1864,11 +1960,47 @@ def chart_vram_limits(d: ComparisonData, out: Path):
 def chart_scorecard(d: ComparisonData, out: Path):
     headline_metrics = [
         ("train_vision_resnet50_fp16_img_per_sec", S("score_resnet_train"), S("unit_img_s"), "{:.0f}", None),
-        ("infer_vision_resnet50_fp16_img_per_sec", S("score_resnet_infer"), S("unit_img_s"), "{:.0f}", None),
         ("train_nlp_bert-base_bf16_samples_per_sec", S("score_bert_train"), S("unit_samples_s"), "{:.0f}", None),
-        ("gemm_bf16_peak_tflops", S("score_gemm"), S("unit_tflops"), "{:.1f}", None),
-        ("fund_d2d_bw_peak_gb_s", S("score_membw"), S("unit_gb_s"), "{:.0f}", None),
     ]
+
+    # Max Training Throughput — best across all training benchmarks
+    train_tput_keys = sorted([m for m in d.metric_ids()
+                              if (m.startswith("train_vision_") or m.startswith("train_nlp_"))
+                              and ("_img_per_sec" in m or "_samples_per_sec" in m)
+                              and "_bs" not in m and "_norm_" not in m and "_best_bs" not in m])
+    if train_tput_keys:
+        max_train_vals: list[float | None] = [None] * d.n_gpus
+        max_train_labels: list[str | None] = [None] * d.n_gpus
+        for mk in train_tput_keys:
+            tvals = d.get(mk)
+            for gi in range(d.n_gpus):
+                if tvals[gi] is not None and (max_train_vals[gi] is None or tvals[gi] > max_train_vals[gi]):
+                    max_train_vals[gi] = tvals[gi]
+                    # Build label from metric key
+                    parts = mk.replace("train_vision_", "").replace("train_nlp_", "")
+                    parts = parts.replace("_img_per_sec", "").replace("_samples_per_sec", "")
+                    max_train_labels[gi] = parts.replace("_", " ").upper()
+        if any(v is not None for v in max_train_vals):
+            headline_metrics.append(("_max_train_tput", S("score_max_train_tput"), S("unit_samples_s"), "{:.0f}", max_train_labels))
+
+    # Max Inference Throughput — best across all inference benchmarks
+    infer_tput_keys = sorted([m for m in d.metric_ids()
+                              if (m.startswith("infer_vision_") or m.startswith("infer_nlp_"))
+                              and ("_img_per_sec" in m or "_samples_per_sec" in m)
+                              and "_best_bs" not in m])
+    if infer_tput_keys:
+        max_infer_vals: list[float | None] = [None] * d.n_gpus
+        max_infer_labels: list[str | None] = [None] * d.n_gpus
+        for mk in infer_tput_keys:
+            tvals = d.get(mk)
+            for gi in range(d.n_gpus):
+                if tvals[gi] is not None and (max_infer_vals[gi] is None or tvals[gi] > max_infer_vals[gi]):
+                    max_infer_vals[gi] = tvals[gi]
+                    parts = mk.replace("infer_vision_", "").replace("infer_nlp_", "")
+                    parts = parts.replace("_img_per_sec", "").replace("_samples_per_sec", "")
+                    max_infer_labels[gi] = parts.replace("_", " ").upper()
+        if any(v is not None for v in max_infer_vals):
+            headline_metrics.append(("_max_infer_tput", S("score_max_infer_tput"), S("unit_samples_s"), "{:.0f}", max_infer_labels))
 
     # Best LLM
     tps_keys = sorted([m for m in d.metric_ids()
@@ -1913,9 +2045,20 @@ def chart_scorecard(d: ComparisonData, out: Path):
 
     rows = []
     for mid, label, unit, fmt, detail in headline_metrics:
-        vals = d.get(mid)
-        if any(v is not None for v in vals):
-            rows.append((label, unit, fmt, vals, detail))
+        if mid.startswith("_max_"):
+            # Synthetic metric — vals are stored in detail, detail has labels
+            if mid == "_max_train_tput":
+                vals = max_train_vals
+            elif mid == "_max_infer_tput":
+                vals = max_infer_vals
+            else:
+                continue
+            if any(v is not None for v in vals):
+                rows.append((label, unit, fmt, vals, detail))
+        else:
+            vals = d.get(mid)
+            if any(v is not None for v in vals):
+                rows.append((label, unit, fmt, vals, detail))
     if dlperf_vals and any(v is not None for v in dlperf_vals):
         rows.append((S("score_dlperf"), "", "{:.1f}", dlperf_vals, None))
 
@@ -2056,18 +2199,10 @@ def _run_charts(json_path: Path, output_dir: Path):
         chart_training_nlp,
         chart_inference_vision,
         chart_inference_nlp,
-        chart_training_vision_batch_norm,
-        chart_training_nlp_batch_norm,
         chart_llm,
-        chart_gemm,
-        chart_fundamentals,
-        chart_detection,
-        chart_detection_batch_norm,
         chart_power_efficiency,
-        chart_relative_performance,
         chart_cnn_vs_transformer,
         chart_dual_gpu,
-        chart_vram_limits,
         chart_scorecard,
     ]
 
@@ -2097,8 +2232,8 @@ def main():
                         help="Output directory (default: <results-dir>)")
     parser.add_argument("--skip-charts", action="store_true",
                         help="Only extract metrics, skip chart generation")
-    parser.add_argument("--lang", choices=["tr", "en"], default="tr",
-                        help="Chart language: tr (T\u00fcrk\u00e7e) or en (English). Default: tr")
+    parser.add_argument("--lang", choices=["tr", "en"], default="en",
+                        help="Chart language: tr (T\u00fcrk\u00e7e) or en (English). Default: en")
     args = parser.parse_args()
 
     _LANG = args.lang

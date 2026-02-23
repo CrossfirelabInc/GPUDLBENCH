@@ -30,12 +30,9 @@ GPUDLBENCH/
 │   ├── 2_training_nlp.py      # BERT-base/large training throughput (samples/s)
 │   ├── 3_inference_vision.py  # ResNet-50/101 inference latency + throughput
 │   ├── 4_inference_nlp.py     # BERT-base/large inference latency + throughput
-│   ├── 5_llm_tokens_per_sec.py # GGUF models via llama.cpp — tokens/s + TTFT
-│   ├── 6_vram_limits.py       # Max model size (FP16), max context length, multi-model deploy
-│   ├── 7_gemm_stress.py       # Peak TFLOPS: FP64/FP32/FP16/BF16/FP8 matrix multiply
+│   ├── 5_llm_tokens_per_sec.py # GGUF models via llama.cpp — tokens/s
+│   ├── 6_vram_limits.py       # Max model size (FP16), max context length (3B), multi-model deploy
 │   ├── 8_training_detection.py # Faster R-CNN + Mask R-CNN training throughput
-│   ├── 9_gpu_fundamentals.py  # Mem BW, PCIe BW, kernel latency, FFT, N-body (leapfrog), SpMM,
-│   │                          #   stencil, reduction, Conv2d, SDPA attention
 │   └── 10_multi_gpu_scaling.py # DDP + FSDP ZeRO-2 scaling efficiency (ResNet/BERT/GPT-2)
 │
 ├── utils/
