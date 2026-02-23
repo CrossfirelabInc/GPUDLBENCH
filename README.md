@@ -1,217 +1,198 @@
-# GPU Yapay Zeka Benchmark Paketi
+# GPU Deep Learning Benchmark Suite
 
-**Crossfirelab** tarafindan gelistirildi — Vibe Coded 🎯
+**By Crossfirelab** — Vibe Coded 🎯
 
-NVIDIA ekran kartlari icin yapay zeka odakli benchmark (performans testi) paketi. Egitim hizi, cikarim hizi, LLM (buyuk dil modeli) token uretimi, VRAM kapasitesi ve cift GPU olcekleme gibi testleri tek komutla calistirir. PyTorch + llama.cpp kullanir, Docker gerektirmez.
-
----
-
-## Ne Test Ediliyor?
-
-| No | Test | Ne Olcuyor |
-|----|------|-------------|
-| 1 | CNN Egitim (ResNet-50/101) | Saniyede kac goruntu ile egitim yapilabilir |
-| 2 | Transformer Egitim (BERT-Base/Large) | Saniyede kac metin ornegi islenebilir |
-| 3 | CNN Cikarim (ResNet-50/101) | Egitilmis modelle saniyede kac tahmin yapilir |
-| 4 | Transformer Cikarim (BERT-Base/Large) | NLP modeliyle saniyede kac metin analiz edilir |
-| 5 | LLM Token Uretimi (llama.cpp) | Buyuk dil modelleri saniyede kac kelime uretir |
-| 6 | VRAM Kapasite Testi | En buyuk hangi model yuklenebilir, maks baglam uzunlugu |
-| 8 | Nesne Algilama Egitimi (Faster/Mask R-CNN) | Nesne tespiti modellerinin egitim hizi |
-| 10 | Cift GPU Olcekleme (DDP + FSDP) | 2. GPU ne kadar hiz kazandiriyor |
+AI-focused benchmark suite for NVIDIA GPUs. Measures training throughput, inference speed, LLM token generation, VRAM capacity, and dual-GPU scaling in a single run. Built on PyTorch + llama.cpp — no Docker required.
 
 ---
 
-## Gereksinimler
+## Quick Start
 
-- **Linux** (Ubuntu 20.04+ onerilir)
-- **NVIDIA ekran karti** (CUDA 11.8 veya uzeri)
-- **Python 3.9+**
-- **16 GB RAM** minimum
-- **Internet baglantisi** (ilk kurulumda model indirme icin)
-
----
-
-## Kurulum
-
-### 1. Projeyi indirin
+### 1. Clone & Install
 
 ```bash
 git clone <repo-url>
 cd GPUDLBENCH
-```
-
-### 2. HuggingFace Token olusturun
-
-Bazi modelleri indirmek icin HuggingFace hesabiniz gerekiyor:
-
-1. https://huggingface.co/settings/tokens adresine gidin
-2. Yeni bir token olusturun (Read yetkisi yeterli)
-3. `.credentials` dosyasini olusturun:
-
-```bash
-nano .credentials
-```
-
-Icine sunu yazin:
-
-```
-HF_TOKEN=hf_sizinTokenBuraya
-```
-
-### 3. Kurulumu baslatin
-
-```bash
 python3 install.py
 ```
 
-Bu komut otomatik olarak:
-- Python sanal ortami (venv) olusturur
-- GPU'nuza uygun PyTorch versiyonunu kurar
-- llama.cpp'yi derler (LLM testi icin)
-- Test modellerini indirir (~57 GB)
+The installer automatically creates a virtual environment, installs the correct PyTorch for your GPU, builds llama.cpp, and downloads test models (~57 GB).
 
-Kurulum bittikten sonra sanal ortami aktiflestirin:
+### 2. Activate the Environment
 
 ```bash
 source venv/bin/activate
 ```
 
-### Kurulum secenekleri
-
-```bash
-python3 install.py --skip-llama        # llama.cpp kurulumunu atla (test 5 calismaz)
-python3 install.py --skip-models       # model indirmeyi atla
-python3 install.py --model-set popular # daha kucuk model seti (~38 GB)
-```
-
----
-
-## Testleri Calistirma
-
-### Tum testleri calistir
+### 3. Run Benchmarks
 
 ```bash
 python run_benchmarks.py
 ```
 
-Bu komut sirasiyla tum testleri calistirir ve sonuclari `results/` klasorune kaydeder. Tum testler yaklasik 2-4 saat surer.
+Runs all benchmarks sequentially (~2–4 hours). Results are saved to a timestamped folder under `results/`.
 
-### Hizli deneme modu
+### 4. Generate Comparison Charts
 
-Ilk kez deniyorsaniz veya hizli bir test yapmak istiyorsaniz:
+After benchmarking multiple GPUs (in separate sessions), generate cross-GPU comparison charts:
+
+```bash
+python utils/generate_comparison.py
+```
+
+Charts are saved to `results/comparison_charts/`. English is the default language; use `--lang tr` for Turkish.
+
+---
+
+## What's Being Tested?
+
+| # | Benchmark | What It Measures |
+|---|-----------|-----------------|
+| 1 | CNN Training (ResNet-50/101) | Training throughput (images/sec) |
+| 2 | Transformer Training (BERT-Base/Large) | Training throughput (samples/sec) |
+| 3 | CNN Inference (ResNet-50/101) | Inference latency & throughput |
+| 4 | Transformer Inference (BERT-Base/Large) | NLP inference throughput |
+| 5 | LLM Token Generation (llama.cpp) | Token generation speed (tokens/sec) |
+| 6 | VRAM Capacity Test | Largest loadable model, max context length |
+| 8 | Object Detection Training (Faster/Mask R-CNN) | Detection model training throughput |
+| 10 | Dual-GPU Scaling (DDP + FSDP) | Scaling efficiency with 2 identical GPUs |
+
+---
+
+## Requirements
+
+- **Linux** (Ubuntu 20.04+ recommended)
+- **NVIDIA GPU** with CUDA 11.8+
+- **Python 3.9+**
+- **16 GB RAM** minimum
+- **Internet connection** (for initial model downloads)
+
+---
+
+## Run Options
+
+### Demo Mode
+
+Quick ~5-minute smoke test to verify everything works:
 
 ```bash
 python run_benchmarks.py --demo
 ```
 
-Demo modu yaklasik 5 dakikada biter — tam sonuclar vermez ama her seyin calistigini dogrulamaniz icin idealdir.
-
-### Belirli testleri atlama
+### Skip Specific Benchmarks
 
 ```bash
-python run_benchmarks.py --skip 5 6 10    # LLM, VRAM, cift GPU testlerini atla
+python run_benchmarks.py --skip 5 6 10    # skip LLM, VRAM, dual-GPU
 ```
 
-### Tek bir testi calistirma
+### Run a Single Benchmark
 
 ```bash
-python benchmarks/1_training_vision.py     # sadece goruntu egitim testi
-python benchmarks/5_llm_tokens_per_sec.py  # sadece LLM testi
+python benchmarks/1_training_vision.py
+python benchmarks/5_llm_tokens_per_sec.py
+```
+
+### Install Options
+
+```bash
+python3 install.py --skip-llama        # skip llama.cpp build (benchmark 5 won't work)
+python3 install.py --skip-models       # skip model downloads
+python3 install.py --model-set popular # smaller model set (~38 GB)
 ```
 
 ---
 
-## Sonuclari Goruntuleme
+## Results & Reports
 
-Her test calistirmasinda `results/` klasorunde tarih damgali bir klasor olusturulur. En son calistirma `results/latest` kisayolundan erisilebilir.
+Each run creates a timestamped folder under `results/`. The latest run is accessible via `results/latest`.
 
-### Ozet rapor olusturma
+### Per-Session Summary Report
 
 ```bash
 python utils/generate_report.py
 ```
 
-### GPU karsilastirma grafikleri olusturma
-
-Birden fazla GPU test ettiyseniz (farkli oturumlarda), karsilastirma grafikleri olusturabilirsiniz:
+### Cross-GPU Comparison Charts
 
 ```bash
-python utils/generate_comparison.py              # Turkce grafikler (varsayilan)
-python utils/generate_comparison.py --lang en     # Ingilizce grafikler
+python utils/generate_comparison.py              # English (default)
+python utils/generate_comparison.py --lang tr     # Turkish
+python utils/generate_comparison.py --skip-charts # metrics only, no PNGs
 ```
 
-Grafikler `results/comparison_charts/` klasorune kaydedilir.
+17 chart types are generated:
+
+| Charts | Description |
+|--------|-------------|
+| CNN Training Throughput | ResNet-50/101 max & batch-normalized |
+| Transformer Training Throughput | BERT-Base/Large max & batch-normalized |
+| CNN Inference | ResNet-50/101 |
+| Transformer Inference | BERT-Base/Large |
+| LLM Performance | Tokens/sec + time-to-first-token |
+| GEMM Peak TFLOPS | Raw compute (FP64/FP32/FP16/BF16/FP8) |
+| GPU Fundamentals | Memory BW, PCIe, latency, FFT, N-body |
+| Object Detection | Faster/Mask R-CNN max & batch-normalized |
+| Power Efficiency | Throughput per watt |
+| Relative Performance | GPU-to-GPU multiplier (weakest = 1.0×) |
+| CNN vs Transformer | Architecture comparison |
+| Dual-GPU Scaling | DDP/FSDP speedup |
+| VRAM Capacity | Largest model, VRAM used, max context |
+| Scorecard | Summary table with per-metric winners |
 
 ---
 
-## Cift GPU Kurulumu
+## Dual-GPU Setup
 
-Sisteminizde 2 ayni GPU varsa test 10 (cift GPU olcekleme) otomatik olarak calisir. Eger GPU'lariniz farkliysa, hangi GPU'yu test etmek istediginiz sorulur ve cift GPU testi atlanir.
+If your system has 2 identical GPUs, benchmark 10 (dual-GPU scaling) runs automatically. The runner auto-detects the display GPU and benchmarks on the other one.
 
----
-
-## Ayarlar
-
-Batch boyutlari, iterasyon sayilari, model listeleri gibi ayarlari degistirmek isterseniz:
-
-```bash
-nano benchmarks/config.py
-```
+If your GPUs are different, you'll be prompted to choose which one to benchmark and the dual-GPU test is skipped.
 
 ---
 
-## Sik Karsilasilan Sorunlar
+## Configuration
 
-### "no kernel image is available" hatasi
+Batch sizes, iteration counts, model lists, and other tunables live in:
 
-GPU'nuzun mimarisi icin uygun PyTorch kurulu degil. Cozum:
-
-```bash
-python3 install.py
+```
+benchmarks/config.py
 ```
 
-Kurulum scripti GPU'nuzu otomatik algilar ve uygun surumu kurar. Blackwell GPU'lar (RTX 5090, 5080 vb.) icin gerekirse nightly surum otomatik denenir.
+---
 
-### Derleme hatalari (`_Float64x`, `CMake` hatalari)
+## Troubleshooting
 
-C++ derleyiciniz eski olabilir. Cozum:
+### "no kernel image is available"
 
-```bash
-sudo apt-get update
-sudo apt-get install -y gcc-13 g++-13
-python3 install.py
-```
-
-### GPU degisikligi yaptim
-
-Ekran kartini fiziksel olarak degistirdikten sonra:
+The installed PyTorch doesn't match your GPU architecture. Re-run the installer — it auto-detects your GPU and installs the correct build (including nightly for Blackwell GPUs):
 
 ```bash
 python3 install.py
 ```
 
-Kurulum scripti yeni GPU'yu algilar, PyTorch'u gunceller ve llama.cpp'yi yeniden derler.
+### Switched to a Different GPU
+
+After physically swapping the GPU, re-run the installer. It will detect the new card, update PyTorch, and rebuild llama.cpp:
+
+```bash
+python3 install.py
+```
 
 ---
 
-## Uretilen Grafikler
+## HuggingFace Token (Optional)
 
-Karsilastirma araci su grafikleri olusturur:
+Some gated models require a HuggingFace token. If you need one, create a `.credentials` file in the project root:
 
-1. **CNN Egitim Verimi** — ResNet-50/101
-2. **Transformer Egitim Verimi** — BERT-Base/Large
-3. **CNN Cikarim Verimi** — ResNet-50/101
-4. **Transformer Cikarim Verimi** — BERT-Base/Large
-5. **LLM Performansi** — Token uretim hizi
-6. **Nesne Algilama** — Faster/Mask R-CNN
-7. **Watt Basina Performans** — Enerji verimliligi
-8. **Gorece Performans** — GPU'lar arasi kat farki
-9. **CNN vs Transformer** — Mimari karsilastirma
-10. **Cift GPU Olcekleme** — DDP/FSDP hizlanma
-11. **GPU Karsilastirma Karti** — Tum sonuclarin ozet tablosu
+```
+HF_TOKEN=hf_yourTokenHere
+```
+
+Or pass it directly: `python3 install.py --hf-token hf_yourTokenHere`
+
+Get a token at https://huggingface.co/settings/tokens (Read access is sufficient). The suite works without a token — gated model downloads will simply be skipped.
 
 ---
 
-## Lisans
+## License
 
 MIT
