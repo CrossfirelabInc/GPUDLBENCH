@@ -19,6 +19,11 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+# Ensure PyTorch CUDA device indices match nvidia-smi GPU indices.
+# Without this, CUDA may reorder devices (e.g. FASTEST_FIRST) causing
+# GPUMonitor / nvidia-smi queries to target the wrong GPU.
+os.environ.setdefault("CUDA_DEVICE_ORDER", "PCI_BUS_ID")
+
 import numpy as np
 import torch
 
