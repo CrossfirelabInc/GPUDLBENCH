@@ -1592,6 +1592,19 @@ def chart_power_efficiency(d: ComparisonData, out: Path):
         if not tput_keys:
             continue
 
+        # For LLM: use only the best model that ALL GPUs ran (fair comparison).
+        # Using max across all models would penalise GPUs with more VRAM since
+        # their average power includes slow large-model runs.
+        if spec["tput_prefix"] == "llm_":
+            # Find the model key where ALL GPUs have data
+            common_keys = [k for k in tput_keys
+                           if all(v is not None for v in d.get(k))]
+            if common_keys:
+                # Pick the one with highest average throughput
+                best_common = max(common_keys,
+                                  key=lambda k: sum(v or 0 for v in d.get(k)))
+                tput_keys = [best_common]
+
         # For each GPU, find the max throughput across all model variants
         max_tput: list[float | None] = [None] * d.n_gpus
         for mk in tput_keys:
