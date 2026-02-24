@@ -389,9 +389,13 @@ def _run_llama_inference(llama_cli: Path, model_path: Path,
         cmd.extend(["--no-conversation", "--single-turn"])
 
     if n_gpus >= 2:
-        # True tensor parallelism: split each layer's rows across GPUs
+        # Layer splitting (pipeline parallelism) across GPUs.
+        # Note: row splitting (true TP) is slower on PCIe-connected GPUs
+        # due to per-layer synchronization overhead. Layer splitting at
+        # least avoids the penalty, though generation speedup is minimal
+        # since tokens are produced sequentially through the pipeline.
         split = ",".join(["1"] * n_gpus)
-        cmd.extend(["--split-mode", "row", "--tensor-split", split])
+        cmd.extend(["--tensor-split", split])
 
     # Make sure all GPUs are visible for tensor parallelism
     env = os.environ.copy()
@@ -533,83 +537,12 @@ def main() -> None:
 
     all_rows: list[dict] = []
 
-    # ── LLM Inference Scaling (llama.cpp with tensor parallelism) ─────
-    llama_cli = _find_llama_cli()
-    llm_infer_models = _find_llm_inference_models()
-
-    if llama_cli and llm_infer_models:
-        print(f"\n{'═' * 72}")
-        print("  LLM Inference Scaling (llama.cpp tensor parallelism)")
-        print(f"{'═' * 72}")
-        print(f"  llama binary: {llama_cli.name}")
-        print(f"  Models: {', '.join(m['name'] for m in llm_infer_models)}")
-        print(f"  Tokens: {MULTIGPU_LLM_INFERENCE_TOKENS}")
-
-        models_dir = MODELS_DIR
-        num_tokens = MULTIGPU_LLM_INFERENCE_TOKENS
-
-        llm_baseline: dict[str, float] = {}
-
-        for m in llm_infer_models:
-            model_path = models_dir / m["filename"]
-            if not model_path.exists():
-                print(f"\n  {m['name']} — SKIP (model not found, run install.py)")
-                all_rows.append({
-                    "model": f"llm_{m['name']}", "mode": "inference",
-                    "method": "single", "n_gpus": 1,
-                    "status": "model_not_found",
-                })
-                continue
-
-            llm_key = f"llm_{m['name']}"
-
-            # Run on 1 GPU
-            gpu_configs = [1]
-            if can_multi:
-                gpu_configs.append(2)
-
-            for n_gpu in gpu_configs:
-                tag = f"[{n_gpu} GPU{'s' if n_gpu > 1 else ''}]"
-                print(f"\n  {tag}  {m['name']} ({m['quant']}) INFERENCE...",
-                      end=" ", flush=True)
-
-                tps = _run_llama_inference(llama_cli, model_path,
-                                           num_tokens, n_gpus=n_gpu)
-                if tps is not None and tps > 0:
-                    if n_gpu == 1:
-                        llm_baseline[llm_key] = tps
-                    base = llm_baseline.get(llm_key, tps)
-                    eff = tps / (n_gpu * base) * 100 if n_gpu > 1 else 100.0
-                    speedup = tps / base if base > 0 else 0.0
-
-                    if n_gpu > 1:
-                        suffix = (f"  (efficiency: {eff:.0f}%, "
-                                  f"speedup: {speedup:.2f}×)")
-                    else:
-                        suffix = ""
-                    print(f"{tps:.1f} t/s{suffix}")
-
-                    all_rows.append({
-                        "model": llm_key, "mode": "inference",
-                        "method": "single" if n_gpu == 1 else "tensor_parallel",
-                        "n_gpus": n_gpu,
-                        "throughput_samples_per_sec": round(tps, 2),
-                        "scaling_efficiency_pct": round(eff, 1),
-                        "speedup": round(speedup, 3),
-                        "status": "success",
-                    })
-                else:
-                    print("FAILED")
-                    all_rows.append({
-                        "model": llm_key, "mode": "inference",
-                        "method": "single" if n_gpu == 1 else "tensor_parallel",
-                        "n_gpus": n_gpu,
-                        "status": "error",
-                    })
-    elif not llama_cli:
-        print("\n  LLM inference scaling skipped — llama-cli not found.")
-    elif not llm_infer_models:
-        print("\n  LLM inference scaling skipped — no matching models configured.")
+    # ── LLM Inference Scaling — DISABLED ──────────────────────────────
+    # Disabled: PCIe-connected GPUs show no benefit from multi-GPU LLM
+    # inference. Layer splitting gives ~1.0× (no gain), row splitting
+    # (true TP) causes 3-4× slowdown due to per-layer PCIe sync overhead.
+    # Multi-GPU LLM inference only works with NVLink interconnects.
+    print("\n  LLM inference scaling — skipped (no benefit on PCIe)")
 
     # ── Training Scaling ──────────────────────────────────────────────────
     specs = [
