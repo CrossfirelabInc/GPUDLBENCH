@@ -1796,9 +1796,14 @@ def chart_cnn_vs_transformer(d: ComparisonData, out: Path):
         result: list[float | None] = []
         for gi in range(n_gpus):
             if counts[gi] > 0:
-                result.append(round(exp(log_sums[gi] / counts[gi]), 3))
+                result.append(exp(log_sums[gi] / counts[gi]))
             else:
                 result.append(None)
+        # Re-normalise so the minimum score is exactly 1.0×
+        valid_results = [v for v in result if v is not None and v > 0]
+        if valid_results:
+            base = min(valid_results)
+            result = [round(v / base, 3) if v is not None else None for v in result]
         return result
 
     def _avg_power(power_keys: list[str]) -> list[float | None]:
