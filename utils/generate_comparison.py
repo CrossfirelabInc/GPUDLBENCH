@@ -70,7 +70,7 @@ plt.rcParams.update({
     "grid.color":       GRID_COLOR,
     "grid.alpha":       0.3,
     "font.family":      "sans-serif",
-    "font.size":        12,
+    "font.size":        14,
     "axes.spines.top":  False,
     "axes.spines.right": False,
 })
@@ -889,33 +889,33 @@ def _fig_w(n_gpus: int, n_categories: int = 6) -> float:
 
 def _val_fontsize(n_gpus: int) -> int:
     if n_gpus <= 3:
-        return 10
+        return 13
     if n_gpus <= 5:
-        return 9
-    return 7
+        return 12
+    return 9
 
 
 def _tick_fontsize(n_gpus: int) -> int:
     if n_gpus <= 4:
-        return 11
-    return 9
+        return 14
+    return 12
 
 
 def _legend_kwargs(n_gpus: int) -> dict:
     if n_gpus <= 4:
-        return dict(fontsize=10, loc="lower right",
+        return dict(fontsize=12, loc="lower right",
                     facecolor=CARD_COLOR, edgecolor=GRID_COLOR)
-    return dict(fontsize=9, loc="lower right",
+    return dict(fontsize=11, loc="lower right",
                 facecolor=CARD_COLOR, edgecolor=GRID_COLOR)
 
 
 def _gpu_name_fontsize(n_gpus: int) -> int:
     """Font size for GPU name labels rendered inside chart bars."""
     if n_gpus <= 3:
-        return 8
+        return 11
     if n_gpus <= 5:
-        return 7
-    return 6
+        return 9
+    return 8
 
 
 # ── Chart helpers ─────────────────────────────────────────────────────────────
@@ -957,7 +957,7 @@ def _standard_fig(title: str, direction_text: str, direction_color: str,
         path_effects.Normal(),
     ])
     dt = fig.text(0.97, 0.935, direction_text, ha="right", va="top",
-                  fontsize=10, color=direction_color, alpha=0.9)
+                  fontsize=13, color=direction_color, alpha=0.9)
     dt.set_path_effects([
         path_effects.withStroke(linewidth=2, foreground=BG_COLOR, alpha=0.5),
     ])
@@ -1004,8 +1004,8 @@ def _grouped_bar(ax, categories: list[str], gpu_names: list[str],
 
     ax.set_xticks(x)
     ax.set_xticklabels(categories, fontsize=_tick_fontsize(n_gpus))
-    ax.set_ylabel(ylabel, fontsize=13)
-    st = ax.set_title(subtitle, fontsize=14, color=ACCENT_BLUE, pad=10)
+    ax.set_ylabel(ylabel, fontsize=15)
+    st = ax.set_title(subtitle, fontsize=16, color=ACCENT_BLUE, pad=10)
     st.set_path_effects([path_effects.withStroke(linewidth=2, foreground=BG_COLOR, alpha=0.4)])
     ax.grid(axis="y", linestyle="--", zorder=0)
     ax.set_axisbelow(True)
@@ -1069,8 +1069,8 @@ def _horizontal_grouped_bar(ax, categories: list[str], gpu_names: list[str],
 
     ax.set_yticks(y)
     ax.set_yticklabels(categories, fontsize=_tick_fontsize(n_gpus))
-    ax.set_xlabel(xlabel, fontsize=13)
-    st = ax.set_title(subtitle, fontsize=14, color=ACCENT_BLUE, pad=10)
+    ax.set_xlabel(xlabel, fontsize=15)
+    st = ax.set_title(subtitle, fontsize=16, color=ACCENT_BLUE, pad=10)
     st.set_path_effects([path_effects.withStroke(linewidth=2, foreground=BG_COLOR, alpha=0.4)])
     ax.grid(axis="x", linestyle="--", zorder=0)
     ax.set_axisbelow(True)
@@ -1259,7 +1259,7 @@ def chart_llm(d: ComparisonData, out: Path):
         path_effects.Normal(),
     ])
     dt = fig.text(0.97, 0.935, S("llm_higher"), ha="right", va="top",
-                  fontsize=10, color=ACCENT_GREEN, alpha=0.9)
+                  fontsize=13, color=ACCENT_GREEN, alpha=0.9)
     dt.set_path_effects([path_effects.withStroke(linewidth=2, foreground=BG_COLOR, alpha=0.5)])
     _watermark(fig)
 
@@ -1314,12 +1314,12 @@ def chart_llm(d: ComparisonData, out: Path):
         model_tick_labels.append(label)
 
     ax.set_yticks(model_ticks)
-    ax.set_yticklabels(model_tick_labels, fontsize=11, fontweight="bold",
+    ax.set_yticklabels(model_tick_labels, fontsize=14, fontweight="bold",
                        color=ACCENT_BLUE)
     ax.invert_yaxis()
 
-    ax.set_xlabel(S("llm_xlabel_tps"), fontsize=13)
-    ax.set_title(S("llm_speed"), fontsize=14, color=ACCENT_BLUE, pad=10)
+    ax.set_xlabel(S("llm_xlabel_tps"), fontsize=15)
+    ax.set_title(S("llm_speed"), fontsize=16, color=ACCENT_BLUE, pad=10)
     ax.grid(axis="x", linestyle="--", zorder=0)
     ax.set_axisbelow(True)
     ax.set_xlim(0, max_v * 1.20)
@@ -1398,7 +1398,7 @@ def chart_fundamentals(d: ComparisonData, out: Path):
 
     ax.set_yticks(y)
     ax.set_yticklabels(cats, fontsize=_tick_fontsize(n_gpus))
-    ax.set_title(S("fund_subtitle"), fontsize=12, color=SUBTEXT_COLOR, pad=10)
+    ax.set_title(S("fund_subtitle"), fontsize=14, color=SUBTEXT_COLOR, pad=10)
     ax.grid(axis="x", linestyle="--", zorder=0)
     ax.set_axisbelow(True)
     ax.invert_yaxis()
@@ -1742,8 +1742,8 @@ def chart_relative_performance(d: ComparisonData, out: Path):
 
     ax.set_yticks(y)
     ax.set_yticklabels(cats, fontsize=_tick_fontsize(n_gpus))
-    ax.set_xlabel(S("relative_xlabel"), fontsize=13)
-    ax.set_title(S("relative_subtitle"), fontsize=14, color=ACCENT_BLUE, pad=10)
+    ax.set_xlabel(S("relative_xlabel"), fontsize=15)
+    ax.set_title(S("relative_subtitle"), fontsize=16, color=ACCENT_BLUE, pad=10)
     ax.grid(axis="x", linestyle="--", zorder=0)
     ax.set_axisbelow(True)
     ax.set_xlim(0, max_v * 1.25)
@@ -1916,8 +1916,8 @@ def chart_cnn_vs_transformer(d: ComparisonData, out: Path):
 
     ax.set_yticks(y)
     ax.set_yticklabels(cats, fontsize=_tick_fontsize(n_gpus))
-    ax.set_xlabel(S("cnn_vs_tf_ylabel"), fontsize=13)
-    ax.set_title(S("cnn_vs_tf_subtitle"), fontsize=14, color=ACCENT_BLUE, pad=10)
+    ax.set_xlabel(S("cnn_vs_tf_ylabel"), fontsize=15)
+    ax.set_title(S("cnn_vs_tf_subtitle"), fontsize=16, color=ACCENT_BLUE, pad=10)
     ax.grid(axis="x", linestyle="--", zorder=0)
     ax.set_axisbelow(True)
     ax.set_xlim(0, max_v * 1.25)
@@ -2087,8 +2087,8 @@ def chart_dual_gpu(d: ComparisonData, out: Path):
 
         ax.set_yticks(y)
         ax.set_yticklabels(cats, fontsize=_tick_fontsize(n_active))
-        ax.set_xlabel(unit_label, fontsize=11)
-        ax.set_title(model_label, fontsize=14, color=ACCENT_BLUE, pad=10)
+        ax.set_xlabel(unit_label, fontsize=13)
+        ax.set_title(model_label, fontsize=16, color=ACCENT_BLUE, pad=10)
         ax.grid(axis="x", linestyle="--", zorder=0)
         ax.set_axisbelow(True)
         max_v = max(all_vals) if all_vals else 1
@@ -2096,7 +2096,7 @@ def chart_dual_gpu(d: ComparisonData, out: Path):
         ax.invert_yaxis()
 
     fig.text(0.5, 0.92, S("multigpu_subtitle"), ha="center",
-             fontsize=13, color=SUBTEXT_COLOR)
+             fontsize=15, color=SUBTEXT_COLOR)
     fig.tight_layout(rect=[0, 0.02, 1, 0.90])
     _save(fig, out / "cmp_dual_gpu.png")
 
@@ -2171,7 +2171,7 @@ def chart_vram_limits(d: ComparisonData, out: Path):
 
     ax.set_yticks(y)
     ax.set_yticklabels(cats, fontsize=_tick_fontsize(n_gpus))
-    ax.set_title(S("vram_subtitle"), fontsize=12, color=SUBTEXT_COLOR, pad=10)
+    ax.set_title(S("vram_subtitle"), fontsize=14, color=SUBTEXT_COLOR, pad=10)
     ax.grid(axis="x", linestyle="--", zorder=0)
     ax.set_axisbelow(True)
     ax.invert_yaxis()
@@ -2317,16 +2317,16 @@ def chart_scorecard(d: ComparisonData, out: Path):
     n_cols = n_gpus + 1
 
     fig_w = max(BASE_FIG_W, 4.5 * n_gpus + 3)
-    fig_h = max(BASE_FIG_H, 1.1 * n_rows + 2)
+    fig_h = max(BASE_FIG_H, 1.3 * n_rows + 2)
     fig = plt.figure(figsize=(fig_w, fig_h))
-    fig.suptitle(S('score_title'), fontsize=22, fontweight="bold",
+    fig.suptitle(S('score_title'), fontsize=26, fontweight="bold",
                  color=TEXT_COLOR, y=0.97)
 
     for ri, (label, unit, fmt, vals, detail) in enumerate(rows):
         ax = fig.add_subplot(n_rows, n_cols, ri * n_cols + 1)
         ax.set_xlim(0, 1); ax.set_ylim(0, 1); ax.axis("off")
         ax.text(0.95, 0.5, label, ha="right", va="center",
-                fontsize=12, color=SUBTEXT_COLOR, fontweight="bold")
+                fontsize=14, color=SUBTEXT_COLOR, fontweight="bold")
 
         for gi in range(n_gpus):
             ax = fig.add_subplot(n_rows, n_cols, ri * n_cols + 2 + gi)
@@ -2351,28 +2351,28 @@ def chart_scorecard(d: ComparisonData, out: Path):
                 has_detail = detail and gi < len(detail) and detail[gi] is not None
                 val_y = 0.62 if has_detail else 0.55
                 # Auto-shrink font for long text (e.g. MoE LLM model names)
-                val_fs = 15
+                val_fs = 17
                 if len(val_str) > 20:
-                    val_fs = 10
-                elif len(val_str) > 14:
                     val_fs = 12
+                elif len(val_str) > 14:
+                    val_fs = 14
                 ax.text(0.5, val_y, val_str, ha="center", va="center",
                         fontsize=val_fs, fontweight="bold", color=color)
                 if has_detail:
                     ax.text(0.5, 0.32, str(detail[gi]), ha="center", va="center",
-                            fontsize=9, color=SUBTEXT_COLOR, style="italic")
+                            fontsize=10, color=SUBTEXT_COLOR, style="italic")
             else:
                 ax.text(0.5, 0.5, "N/A", ha="center", va="center",
-                        fontsize=13, color=SUBTEXT_COLOR)
+                        fontsize=15, color=SUBTEXT_COLOR)
 
             if ri == 0:
                 ax.text(0.5, 1.05, gpu_names[gi], ha="center", va="bottom",
-                        fontsize=12, fontweight="bold",
+                        fontsize=14, fontweight="bold",
                         color=GPU_COLORS[gi % len(GPU_COLORS)])
 
     # Disclaimer for LLM fit recommendations
     fig.text(0.5, 0.01, S("score_llmfit_disclaimer"),
-             ha="center", va="bottom", fontsize=8,
+             ha="center", va="bottom", fontsize=9,
              color=SUBTEXT_COLOR, style="italic", alpha=0.8)
 
     _watermark(fig)
