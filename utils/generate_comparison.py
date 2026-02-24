@@ -26,8 +26,10 @@ from typing import Any
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.colors as mcolors
+import matplotlib.patheffects as path_effects
 import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib.colors import LinearSegmentedColormap
 from matplotlib.patches import FancyBboxPatch
 
 # ─── Project root ─────────────────────────────────────────────────────────────
@@ -66,10 +68,66 @@ plt.rcParams.update({
     "xtick.color":      TEXT_COLOR,
     "ytick.color":      TEXT_COLOR,
     "grid.color":       GRID_COLOR,
-    "grid.alpha":       0.4,
+    "grid.alpha":       0.3,
     "font.family":      "sans-serif",
     "font.size":        12,
+    "axes.spines.top":  False,
+    "axes.spines.right": False,
 })
+
+
+# ── Visual effects helpers ────────────────────────────────────────────────────
+
+def _glow_text(ax_or_fig, x, y, text, fontsize=12, color=TEXT_COLOR,
+               fontweight="bold", ha="center", va="center", **kwargs):
+    """Draw text with a soft glow/shadow behind it."""
+    txt = ax_or_fig.text(x, y, text, fontsize=fontsize, color=color,
+                         fontweight=fontweight, ha=ha, va=va, **kwargs)
+    txt.set_path_effects([
+        path_effects.withStroke(linewidth=3, foreground=BG_COLOR, alpha=0.7),
+        path_effects.Normal(),
+    ])
+    return txt
+
+
+def _gradient_barh(ax, y: float, width: float, height: float,
+                   color: str, alpha: float = 1.0, zorder: int = 3):
+    """Draw a horizontal bar with a vertical gradient (lit from top)."""
+    if width <= 0:
+        return None
+    rgb = mcolors.to_rgb(color)
+    # Top highlight → base → darker bottom
+    highlight = tuple(min(1.0, c * 1.35) for c in rgb)
+    shadow = tuple(c * 0.6 for c in rgb)
+    cmap = LinearSegmentedColormap.from_list(
+        "bar_grad", [shadow, rgb, highlight])
+    gradient = np.linspace(0, 1, 256).reshape(256, 1)
+    extent = [0, width, y - height / 2, y + height / 2]
+    ax.imshow(gradient, aspect="auto", cmap=cmap, extent=extent,
+             zorder=zorder, alpha=alpha, interpolation="bicubic")
+    # Thin bright edge on top for "3D" illusion
+    ax.plot([0, width], [y + height / 2, y + height / 2],
+            color=highlight, linewidth=0.8, alpha=0.5, zorder=zorder + 1)
+    return extent
+
+
+def _gradient_bar_v(ax, x: float, bottom: float, height: float,
+                    width: float, color: str, zorder: int = 3):
+    """Draw a vertical bar with a horizontal gradient (lit from left)."""
+    if height <= 0:
+        return None
+    rgb = mcolors.to_rgb(color)
+    highlight = tuple(min(1.0, c * 1.35) for c in rgb)
+    shadow = tuple(c * 0.6 for c in rgb)
+    cmap = LinearSegmentedColormap.from_list(
+        "bar_grad_v", [shadow, rgb, highlight])
+    gradient = np.linspace(0, 1, 256).reshape(1, 256)
+    extent = [x - width / 2, x + width / 2, bottom, bottom + height]
+    ax.imshow(gradient, aspect="auto", cmap=cmap, extent=extent,
+             zorder=zorder, interpolation="bicubic")
+    ax.plot([x - width / 2, x - width / 2], [bottom, bottom + height],
+            color=highlight, linewidth=0.8, alpha=0.5, zorder=zorder + 1)
+    return extent
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -851,8 +909,11 @@ def _save(fig, path: Path):
 
 
 def _watermark(fig):
-    fig.text(0.99, 0.01, S("watermark"),
-             ha="right", va="bottom", fontsize=9, color=SUBTEXT_COLOR, alpha=0.5)
+    txt = fig.text(0.99, 0.01, S("watermark"),
+                   ha="right", va="bottom", fontsize=9, color=SUBTEXT_COLOR, alpha=0.5)
+    txt.set_path_effects([
+        path_effects.withStroke(linewidth=2, foreground=BG_COLOR, alpha=0.3),
+    ])
 
 
 def _standard_fig(title: str, direction_text: str, direction_color: str,
@@ -870,10 +931,17 @@ def _standard_fig(title: str, direction_text: str, direction_color: str,
         kw = {"width_ratios": width_ratios} if width_ratios else {}
         fig, axes = plt.subplots(1, n_axes, figsize=(w, h), gridspec_kw=kw)
 
-    fig.suptitle(title, fontsize=22, fontweight="bold",
-                 color=TEXT_COLOR, y=0.97)
-    fig.text(0.97, 0.935, direction_text, ha="right", va="top",
-             fontsize=10, color=direction_color, alpha=0.9)
+    t = fig.suptitle(title, fontsize=24, fontweight="bold",
+                     color=TEXT_COLOR, y=0.97)
+    t.set_path_effects([
+        path_effects.withStroke(linewidth=4, foreground=BG_COLOR, alpha=0.5),
+        path_effects.Normal(),
+    ])
+    dt = fig.text(0.97, 0.935, direction_text, ha="right", va="top",
+                  fontsize=10, color=direction_color, alpha=0.9)
+    dt.set_path_effects([
+        path_effects.withStroke(linewidth=2, foreground=BG_COLOR, alpha=0.5),
+    ])
     _watermark(fig)
     return fig, axes
 
@@ -899,23 +967,27 @@ def _grouped_bar(ax, categories: list[str], gpu_names: list[str],
         color = GPU_COLORS[gi % len(GPU_COLORS)]
         vals = [v if v is not None else 0 for v in gvals]
         all_vals.extend(vals)
-        bars = ax.bar(x + offset, vals, bar_w * 0.88, color=color,
-                      edgecolor=BG_COLOR, linewidth=1, zorder=3, label=gname)
-        for bar, v in zip(bars, vals):
+        # Invisible bar for legend only
+        ax.bar([], [], color=color, label=gname)
+        for ci, v in enumerate(vals):
             if v > 0:
-                ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height(),
-                        fmt.format(v), ha="center", va="bottom",
-                        fontsize=vfs, color=TEXT_COLOR, fontweight="bold")
-                ax.text(bar.get_x() + bar.get_width() / 2,
-                        bar.get_height() * 0.5,
-                        gname, ha="center", va="center",
+                cx = x[ci] + offset
+                _gradient_bar_v(ax, cx, 0, v, bar_w * 0.88, color, zorder=3)
+                txt = ax.text(cx, v, fmt.format(v),
+                              ha="center", va="bottom",
+                              fontsize=vfs, color=TEXT_COLOR, fontweight="bold")
+                txt.set_path_effects([
+                    path_effects.withStroke(linewidth=2, foreground=BG_COLOR, alpha=0.6),
+                ])
+                ax.text(cx, v * 0.5, gname, ha="center", va="center",
                         fontsize=gfs, color=BG_COLOR, fontweight="bold",
                         alpha=0.85, rotation=90, clip_on=True)
 
     ax.set_xticks(x)
     ax.set_xticklabels(categories, fontsize=_tick_fontsize(n_gpus))
     ax.set_ylabel(ylabel, fontsize=13)
-    ax.set_title(subtitle, fontsize=14, color=ACCENT_BLUE, pad=10)
+    st = ax.set_title(subtitle, fontsize=14, color=ACCENT_BLUE, pad=10)
+    st.set_path_effects([path_effects.withStroke(linewidth=2, foreground=BG_COLOR, alpha=0.4)])
     ax.grid(axis="y", linestyle="--", zorder=0)
     ax.set_axisbelow(True)
     max_v = max(all_vals) if all_vals else 1
@@ -928,7 +1000,7 @@ def _horizontal_grouped_bar(ax, categories: list[str], gpu_names: list[str],
                             subtitle: str,
                             fmt: str = "{:.1f}",
                             annotations_per_gpu: list[list[str]] | None = None):
-    """Draw horizontal grouped bar chart.
+    """Draw horizontal grouped bar chart with gradient fill.
 
     *annotations_per_gpu*, if provided, is a list (one per GPU) of lists
     (one per category) holding short strings (e.g. "BS=64") appended to
@@ -946,36 +1018,45 @@ def _horizontal_grouped_bar(ax, categories: list[str], gpu_names: list[str],
     gfs = _gpu_name_fontsize(n_gpus)
 
     all_vals = []
+    for gi, gvals in enumerate(values_per_gpu):
+        vals = [v if v is not None else 0 for v in gvals]
+        all_vals.extend(vals)
+    max_v_pre = max(all_vals) if all_vals else 1
+
     for gi, (gname, gvals) in enumerate(zip(gpu_names, values_per_gpu)):
         offset = (gi - (n_gpus - 1) / 2) * bar_h
         color = GPU_COLORS[gi % len(GPU_COLORS)]
         vals = [v if v is not None else 0 for v in gvals]
-        all_vals.extend(vals)
-        bars = ax.barh(y + offset, vals, bar_h * 0.88, color=color,
-                       edgecolor=BG_COLOR, linewidth=1, zorder=3, label=gname)
+        # Invisible bar for legend
+        ax.barh([], [], color=color, label=gname)
         ann = annotations_per_gpu[gi] if annotations_per_gpu else [None] * len(vals)
-        for ci, (bar, v) in enumerate(zip(bars, vals)):
+        for ci, v in enumerate(vals):
             if v > 0:
+                cy = y[ci] + offset
+                _gradient_barh(ax, cy, v, bar_h * 0.88, color, zorder=3)
                 label = fmt.format(v)
                 a = ann[ci] if ci < len(ann) else None
                 if a:
                     label += f"  ({a})"
-                ax.text(v + max(all_vals) * 0.01, bar.get_y() + bar.get_height() / 2,
-                        label, va="center", fontsize=vfs,
-                        color=TEXT_COLOR, fontweight="bold")
-                ax.text(max(all_vals) * 0.01, bar.get_y() + bar.get_height() / 2,
-                        gname, ha="left", va="center",
+                txt = ax.text(v + max_v_pre * 0.01, cy, label,
+                              va="center", fontsize=vfs,
+                              color=TEXT_COLOR, fontweight="bold")
+                txt.set_path_effects([
+                    path_effects.withStroke(linewidth=2, foreground=BG_COLOR, alpha=0.6),
+                ])
+                ax.text(max_v_pre * 0.01, cy, gname,
+                        ha="left", va="center",
                         fontsize=gfs, color=BG_COLOR, fontweight="bold",
                         alpha=0.85, clip_on=True)
 
     ax.set_yticks(y)
     ax.set_yticklabels(categories, fontsize=_tick_fontsize(n_gpus))
     ax.set_xlabel(xlabel, fontsize=13)
-    ax.set_title(subtitle, fontsize=14, color=ACCENT_BLUE, pad=10)
+    st = ax.set_title(subtitle, fontsize=14, color=ACCENT_BLUE, pad=10)
+    st.set_path_effects([path_effects.withStroke(linewidth=2, foreground=BG_COLOR, alpha=0.4)])
     ax.grid(axis="x", linestyle="--", zorder=0)
     ax.set_axisbelow(True)
-    max_v = max(all_vals) if all_vals else 1
-    ax.set_xlim(0, max_v * 1.30)
+    ax.set_xlim(0, max_v_pre * 1.30)
     ax.invert_yaxis()
     ax.legend(**_legend_kwargs(n_gpus))
 
@@ -1154,10 +1235,15 @@ def chart_llm(d: ComparisonData, out: Path):
     fig_h = max(BASE_FIG_H, total_rows * 0.55 + 2)
     fig_w = _fig_w(n_gpus, total_rows)
     fig, ax = plt.subplots(figsize=(fig_w, fig_h))
-    fig.suptitle(S("llm_title"), fontsize=22, fontweight="bold",
-                 color=TEXT_COLOR, y=0.97)
-    fig.text(0.97, 0.935, S("llm_higher"), ha="right", va="top",
-             fontsize=10, color=ACCENT_GREEN, alpha=0.9)
+    t = fig.suptitle(S("llm_title"), fontsize=24, fontweight="bold",
+                     color=TEXT_COLOR, y=0.97)
+    t.set_path_effects([
+        path_effects.withStroke(linewidth=4, foreground=BG_COLOR, alpha=0.5),
+        path_effects.Normal(),
+    ])
+    dt = fig.text(0.97, 0.935, S("llm_higher"), ha="right", va="top",
+                  fontsize=10, color=ACCENT_GREEN, alpha=0.9)
+    dt.set_path_effects([path_effects.withStroke(linewidth=2, foreground=BG_COLOR, alpha=0.5)])
     _watermark(fig)
 
     bar_h = 0.7
@@ -1169,7 +1255,7 @@ def chart_llm(d: ComparisonData, out: Path):
     bar_vals: list[float] = []
 
     y_pos = 0
-    model_label_positions: list[tuple[float, str]] = []  # (y_center, label)
+    model_label_positions: list[tuple[float, float, str]] = []  # (y_start, y_end, label)
 
     for mi, (model_label, gpu_bars) in enumerate(model_data):
         if mi > 0:
@@ -1183,39 +1269,43 @@ def chart_llm(d: ComparisonData, out: Path):
             bar_vals.append(val)
             y_pos += 1.0
 
-        group_center = (group_start + y_pos - 1.0) / 2
-        model_label_positions.append((group_center, model_label))
+        model_label_positions.append((group_start, y_pos - 1.0, model_label))
 
     # Draw bars
     all_vals = [v for v in bar_vals if v > 0]
     max_v = max(all_vals) if all_vals else 1
 
     for i, (yp, val, color, ylbl) in enumerate(zip(y_positions, bar_vals, bar_colors, y_labels)):
-        ax.barh(yp, val, bar_h, color=color, edgecolor=BG_COLOR,
-                linewidth=1, zorder=3)
-        ax.text(val + max_v * 0.01, yp, f"{val:.1f} t/s",
-                va="center", fontsize=vfs, color=TEXT_COLOR, fontweight="bold")
+        _gradient_barh(ax, yp, val, bar_h, color, zorder=3)
+        # GPU name inside the bar
         ax.text(max_v * 0.01, yp, ylbl, ha="left", va="center",
                 fontsize=gfs, color=BG_COLOR, fontweight="bold",
                 alpha=0.85, clip_on=True)
+        # Value label after the bar
+        txt = ax.text(val + max_v * 0.01, yp, f"{val:.1f} t/s",
+                      va="center", fontsize=vfs, color=TEXT_COLOR, fontweight="bold")
+        txt.set_path_effects([
+            path_effects.withStroke(linewidth=2, foreground=BG_COLOR, alpha=0.6),
+        ])
 
-    # Y-axis: GPU names
-    ax.set_yticks(y_positions)
-    ax.set_yticklabels(y_labels, fontsize=_tick_fontsize(n_gpus))
+    # Y-axis: model group labels (centered for each group)
+    model_ticks = []
+    model_tick_labels = []
+    for y_start, y_end, label in model_label_positions:
+        center = (y_start + y_end) / 2
+        model_ticks.append(center)
+        model_tick_labels.append(label)
+
+    ax.set_yticks(model_ticks)
+    ax.set_yticklabels(model_tick_labels, fontsize=11, fontweight="bold",
+                       color=ACCENT_BLUE)
     ax.invert_yaxis()
-
-    # Model group labels on the right side
-    for yc, label in model_label_positions:
-        ax.text(max_v * 1.28, yc, label, va="center", ha="right",
-                fontsize=11, color=ACCENT_BLUE, fontweight="bold",
-                bbox=dict(boxstyle="round,pad=0.3", facecolor=CARD_COLOR,
-                          edgecolor=ACCENT_BLUE, alpha=0.8))
 
     ax.set_xlabel(S("llm_xlabel_tps"), fontsize=13)
     ax.set_title(S("llm_speed"), fontsize=14, color=ACCENT_BLUE, pad=10)
     ax.grid(axis="x", linestyle="--", zorder=0)
     ax.set_axisbelow(True)
-    ax.set_xlim(0, max_v * 1.35)
+    ax.set_xlim(0, max_v * 1.20)
 
     # Legend with GPU colors (unique GPUs only)
     seen = set()
@@ -1774,23 +1864,31 @@ def chart_cnn_vs_transformer(d: ComparisonData, out: Path):
 
     all_v = []
     for gi, gname in enumerate(gpu_names):
+        gvals = vals_per_gpu[gi]
+        all_v.extend(gvals)
+    max_v_pre = max(all_v) if all_v else 2
+
+    for gi, gname in enumerate(gpu_names):
         offset = (gi - (n_gpus - 1) / 2) * bar_h
         color = GPU_COLORS[gi % len(GPU_COLORS)]
         gvals = vals_per_gpu[gi]
-        all_v.extend(gvals)
-        bars = ax.barh(y + offset, gvals, bar_h * 0.88, color=color,
-                       edgecolor=BG_COLOR, linewidth=1, zorder=3, label=gname)
-        for bar, v in zip(bars, gvals):
+        ax.barh([], [], color=color, label=gname)  # legend
+        for ci, v in enumerate(gvals):
             if v > 0:
-                ax.text(v + max(all_v) * 0.01, bar.get_y() + bar.get_height() / 2,
-                        f"{v:.2f}x", va="center",
-                        fontsize=vfs, color=TEXT_COLOR, fontweight="bold")
-                ax.text(max(all_v) * 0.01, bar.get_y() + bar.get_height() / 2,
-                        gname, ha="left", va="center",
+                cy = y[ci] + offset
+                _gradient_barh(ax, cy, v, bar_h * 0.88, color, zorder=3)
+                txt = ax.text(v + max_v_pre * 0.01, cy,
+                              f"{v:.2f}x", va="center",
+                              fontsize=vfs, color=TEXT_COLOR, fontweight="bold")
+                txt.set_path_effects([
+                    path_effects.withStroke(linewidth=2, foreground=BG_COLOR, alpha=0.6),
+                ])
+                ax.text(max_v_pre * 0.01, cy, gname,
+                        ha="left", va="center",
                         fontsize=gfs, color=BG_COLOR, fontweight="bold",
                         alpha=0.85, clip_on=True)
 
-    max_v = max(all_v) if all_v else 2
+    max_v = max_v_pre
     ax.axvline(x=1.0, color=ACCENT_RED, linestyle="--", linewidth=1.5, alpha=0.7, zorder=2)
     ax.text(1.0, y[-1] + 0.5, "1.0x", color=ACCENT_RED, fontsize=9, ha="center")
 
@@ -1864,7 +1962,7 @@ def chart_dual_gpu(d: ComparisonData, out: Path):
     if n_panels == 1:
         axes = [axes]
 
-    fig.suptitle(S("multigpu_title"), fontsize=22, fontweight="bold",
+    fig.suptitle(S("multigpu_title"), fontsize=24, fontweight="bold",
                  color=TEXT_COLOR, y=0.97)
     fig.text(0.97, 0.935, S("higher_better"), ha="right", va="top",
              fontsize=10, color=ACCENT_GREEN, alpha=0.9)
@@ -1902,24 +2000,28 @@ def chart_dual_gpu(d: ComparisonData, out: Path):
                     effs.append("")
 
             all_vals.extend(vals)
-            bar_color = tuple(min(1.0, c * 1.0) for c in base_rgb)
+            bar_color = GPU_COLORS[gi_global % len(GPU_COLORS)]
 
-            bars = ax.barh(y + offset, vals, bar_h * 0.88, color=bar_color,
-                           edgecolor=BG_COLOR, linewidth=1, zorder=3,
-                           label=gpu_names[gi_local] if pi == 0 else None)
+            # Invisible bar for legend
+            if pi == 0:
+                ax.barh([], [], color=bar_color, label=gpu_names[gi_local])
 
-            for ci, (bar, v, eff) in enumerate(zip(bars, vals, effs)):
+            for ci, (v, eff) in enumerate(zip(vals, effs)):
                 if v > 0:
+                    cy = y[ci] + offset
+                    _gradient_barh(ax, cy, v, bar_h * 0.88, bar_color, zorder=3)
                     ann = f"{v:.0f}"
                     if eff:
                         ann += f" ({eff})"
-                    ax.text(v + max(all_vals) * 0.01 if all_vals else v * 0.01,
-                            bar.get_y() + bar.get_height() / 2,
-                            ann, va="center", fontsize=vfs,
-                            color=TEXT_COLOR, fontweight="bold")
+                    txt = ax.text(v + max(all_vals) * 0.01 if all_vals else v * 0.01,
+                                  cy, ann, va="center", fontsize=vfs,
+                                  color=TEXT_COLOR, fontweight="bold")
+                    txt.set_path_effects([
+                        path_effects.withStroke(linewidth=2, foreground=BG_COLOR, alpha=0.6),
+                    ])
                     pad = max(all_vals) * 0.01 if all_vals else 0
-                    ax.text(pad, bar.get_y() + bar.get_height() / 2,
-                            gpu_names[gi_local], ha="left", va="center",
+                    ax.text(pad, cy, gpu_names[gi_local],
+                            ha="left", va="center",
                             fontsize=gfs, color=BG_COLOR, fontweight="bold",
                             alpha=0.85, clip_on=True)
 
