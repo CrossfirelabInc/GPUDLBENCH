@@ -160,6 +160,14 @@ MULTIGPU_WARMUP: int = 5
 MULTIGPU_ITERATIONS: int = 50
 MULTIGPU_GRAD_ACCUM_STEPS: int = 8   # gradient accumulation steps (improves PCIe scaling)
 
+# LLM inference scaling — pick the 2 best models for multi-GPU inference test
+# (one medium ~8B, one large ~27-32B) to show tensor-parallelism scaling.
+MULTIGPU_LLM_INFERENCE_MODELS: list[str] = [
+    "DeepSeek-R1-Distill-Llama-8B",   # ~8B model
+    "QwQ-32B",                          # ~32B model
+]
+MULTIGPU_LLM_INFERENCE_TOKENS: int = 256
+
 # GPT-2 Large architecture (nanoGPT-style)
 # ~774M parameters — good compute-to-communication ratio for multi-GPU scaling.
 MULTIGPU_LLM_CONFIG: dict = {

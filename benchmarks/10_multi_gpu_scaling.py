@@ -65,10 +65,16 @@ from benchmarks.config import (
     MULTIGPU_ITERATIONS,
     MULTIGPU_LLM_BATCH_PER_GPU,
     MULTIGPU_LLM_CONFIG,
+    MULTIGPU_LLM_INFERENCE_MODELS,
+    MULTIGPU_LLM_INFERENCE_TOKENS,
     MULTIGPU_LLM_SEQ_LENGTH,
     MULTIGPU_NLP_BATCH_PER_GPU,
     MULTIGPU_VISION_BATCH_PER_GPU,
     MULTIGPU_WARMUP,
+    LLM_MODEL_SETS,
+    LLM_PROMPT,
+    LLM_TIMEOUT_SECONDS,
+    MODELS_DIR,
     NLP_MODELS,
     NLP_SEQ_LENGTH,
     NLP_VOCAB_SIZE,
@@ -357,6 +363,109 @@ def _bench_training_multi(method, model_key, n_gpus, batch_per_gpu,
     return throughput
 
 
+# ──────────────────────────── LLM inference (llama.cpp) ───────────────────────
+
+def _run_llama_inference(llama_cli: Path, model_path: Path,
+                         num_tokens: int, n_gpus: int = 1) -> float | None:
+    """Run llama.cpp inference on *n_gpus* and return tokens/sec or None.
+
+    For 1 GPU  → all layers offloaded to GPU 0.
+    For 2 GPUs → uses ``--tensor-split 0.5,0.5`` for even TP across GPUs.
+    """
+    import re
+    import subprocess
+
+    cmd = [
+        str(llama_cli),
+        "-m", str(model_path),
+        "-n", str(num_tokens),
+        "-p", LLM_PROMPT,
+        "-ngl", "999",
+        "--temp", "0.7",
+        "-b", "512",
+        "--perf",
+    ]
+    if llama_cli.name == "llama-cli":
+        cmd.extend(["--no-conversation", "--single-turn"])
+
+    if n_gpus >= 2:
+        # Even tensor-parallelism split across GPUs
+        split = ",".join(["1"] * n_gpus)
+        cmd.extend(["--tensor-split", split])
+
+    # Make sure all GPUs are visible for tensor parallelism
+    env = os.environ.copy()
+    if n_gpus >= 2:
+        env.pop("CUDA_VISIBLE_DEVICES", None)
+
+    try:
+        result = subprocess.run(
+            cmd, capture_output=True, text=True,
+            timeout=LLM_TIMEOUT_SECONDS, stdin=subprocess.DEVNULL,
+            env=env,
+        )
+        combined = (result.stdout or "") + "\n" + (result.stderr or "")
+
+        # Parse tokens/sec from llama.cpp output
+        for line in combined.split("\n"):
+            gen_match = re.search(r"Generation:\s*([\.\d]+)\s*t/s", line)
+            if gen_match:
+                return round(float(gen_match.group(1)), 2)
+            if ("eval time" in line and "prompt" not in line.lower()) or \
+               ("llama_perf" in line and "eval time" in line and "prompt" not in line):
+                m = re.search(r"([\d.]+)\s*tokens\s*per\s*second", line)
+                if m:
+                    return round(float(m.group(1)), 2)
+    except Exception as e:
+        print(f"ERROR: {e}")
+    return None
+
+
+def _find_llama_cli() -> Path | None:
+    """Locate llama.cpp binary (llama-completion or llama-cli)."""
+    import shutil
+    binaries = ["llama-completion", "llama-cli"]
+
+    env_path = os.environ.get("LLAMA_CPP_PATH")
+    if env_path:
+        p = Path(env_path)
+        if p.is_file():
+            return p
+        for binary in binaries:
+            for candidate in [p / "build" / "bin" / binary, p / binary]:
+                if candidate.exists():
+                    return candidate
+
+    home = Path.home()
+    project_dir = Path(__file__).resolve().parent.parent
+    for binary in binaries:
+        for candidate in [
+            project_dir / "llama.cpp" / "build" / "bin" / binary,
+            project_dir / "llama.cpp" / binary,
+            home / "llama.cpp" / "build" / "bin" / binary,
+            home / "llama.cpp" / binary,
+        ]:
+            if candidate.exists():
+                return candidate
+
+    for binary in binaries:
+        found = shutil.which(binary)
+        if found:
+            return Path(found)
+    return None
+
+
+def _find_llm_inference_models() -> list[dict]:
+    """Return models from config that match MULTIGPU_LLM_INFERENCE_MODELS."""
+    wanted = {n.lower() for n in MULTIGPU_LLM_INFERENCE_MODELS}
+    matched = []
+    for model_set in LLM_MODEL_SETS.values():
+        for m in model_set:
+            if m["name"].lower() in wanted and m not in matched:
+                matched.append(m)
+    return matched
+
+
 # ──────────────────────────── main ────────────────────────────────────────────
 
 def main() -> None:
@@ -507,21 +616,102 @@ def main() -> None:
                     "n_gpus": n_gpu, "status": f"error: {short}",
                 })
 
+    # ── LLM Inference Scaling (llama.cpp with tensor parallelism) ─────
+    llama_cli = _find_llama_cli()
+    llm_infer_models = _find_llm_inference_models()
+
+    if llama_cli and llm_infer_models:
+        print(f"\n{'═' * 72}")
+        print("  LLM Inference Scaling (llama.cpp tensor parallelism)")
+        print(f"{'═' * 72}")
+        print(f"  llama binary: {llama_cli.name}")
+        print(f"  Models: {', '.join(m['name'] for m in llm_infer_models)}")
+        print(f"  Tokens: {MULTIGPU_LLM_INFERENCE_TOKENS}")
+
+        models_dir = MODELS_DIR
+        num_tokens = MULTIGPU_LLM_INFERENCE_TOKENS
+
+        llm_baseline: dict[str, float] = {}
+
+        for m in llm_infer_models:
+            model_path = models_dir / m["filename"]
+            if not model_path.exists():
+                print(f"\n  {m['name']} — SKIP (model not found, run install.py)")
+                all_rows.append({
+                    "model": f"llm_{m['name']}", "mode": "inference",
+                    "method": "single", "n_gpus": 1,
+                    "status": "model_not_found",
+                })
+                continue
+
+            llm_key = f"llm_{m['name']}"
+
+            # Run on 1 GPU
+            gpu_configs = [1]
+            if can_multi:
+                gpu_configs.append(2)
+
+            for n_gpu in gpu_configs:
+                tag = f"[{n_gpu} GPU{'s' if n_gpu > 1 else ''}]"
+                print(f"\n  {tag}  {m['name']} ({m['quant']}) INFERENCE...",
+                      end=" ", flush=True)
+
+                tps = _run_llama_inference(llama_cli, model_path,
+                                           num_tokens, n_gpus=n_gpu)
+                if tps is not None and tps > 0:
+                    if n_gpu == 1:
+                        llm_baseline[llm_key] = tps
+                    base = llm_baseline.get(llm_key, tps)
+                    eff = tps / (n_gpu * base) * 100 if n_gpu > 1 else 100.0
+                    speedup = tps / base if base > 0 else 0.0
+
+                    if n_gpu > 1:
+                        suffix = (f"  (efficiency: {eff:.0f}%, "
+                                  f"speedup: {speedup:.2f}×)")
+                    else:
+                        suffix = ""
+                    print(f"{tps:.1f} t/s{suffix}")
+
+                    all_rows.append({
+                        "model": llm_key, "mode": "inference",
+                        "method": "single" if n_gpu == 1 else "tensor_parallel",
+                        "n_gpus": n_gpu,
+                        "throughput_samples_per_sec": round(tps, 2),
+                        "scaling_efficiency_pct": round(eff, 1),
+                        "speedup": round(speedup, 3),
+                        "status": "success",
+                    })
+                else:
+                    print("FAILED")
+                    all_rows.append({
+                        "model": llm_key, "mode": "inference",
+                        "method": "single" if n_gpu == 1 else "tensor_parallel",
+                        "n_gpus": n_gpu,
+                        "status": "error",
+                    })
+    elif not llama_cli:
+        print("\n  LLM inference scaling skipped — llama-cli not found.")
+    elif not llm_infer_models:
+        print("\n  LLM inference scaling skipped — no matching models configured.")
+
     # ── Summary ───────────────────────────────────────────────────────────
     print(f"\n{sep}")
-    print("Multi-GPU Training Scaling Summary")
+    print("Multi-GPU Scaling Summary")
     print(sep)
-    fmt_hdr = (f"  {'Model':>12}  {'Method':>8}  {'GPUs':>5}  "
+    fmt_hdr = (f"  {'Model':>30}  {'Mode':>10}  {'Method':>16}  {'GPUs':>5}  "
                f"{'Throughput':>14}  {'Efficiency':>10}  {'Speedup':>8}")
     print(fmt_hdr)
-    print(f"  {'─'*12}  {'─'*8}  {'─'*5}  {'─'*14}  {'─'*10}  {'─'*8}")
+    print(f"  {'─'*30}  {'─'*10}  {'─'*16}  {'─'*5}  {'─'*14}  {'─'*10}  {'─'*8}")
     for r in all_rows:
         if r.get("status") == "success":
-            tput_str = f"{r['throughput_samples_per_sec']:>10.1f} s/s"
+            tput = r['throughput_samples_per_sec']
+            mode = r.get("mode", "training")
+            unit = "t/s" if mode == "inference" else "s/s"
+            tput_str = f"{tput:>10.1f} {unit}"
             method = r.get("method", "")
             eff_str = f"{r['scaling_efficiency_pct']:>9.1f}%"
             spd_str = f"{r['speedup']:>7.2f}×" if r["n_gpus"] > 1 else "    —  "
-            print(f"  {r['model']:>12}  {method:>8}  "
+            print(f"  {r['model']:>30}  {mode:>10}  {method:>16}  "
                   f"{r['n_gpus']:>5}  "
                   f"{tput_str:>14}  "
                   f"{eff_str}  {spd_str}")

@@ -164,12 +164,14 @@ _STRINGS: dict[str, dict[str, str]] = {
         "relative_subtitle":        "En düşük puanlı GPU = 1.0x temel çizgi",
         "relative_xlabel":          "Kat (x)",
         # — Multi-GPU
-        "multigpu_title":           "Çift GPU Eğitim Hızlandırma",
-        "multigpu_subtitle":        "1 GPU vs 2 GPU — DDP vs FSDP ZeRO-2",
+        "multigpu_title":           "Çift GPU Hızlandırma",
+        "multigpu_subtitle":        "1 GPU vs 2 GPU — DDP / FSDP / Tensor Parallelism",
         "multigpu_ylabel":          "Örnek / sn",
+        "multigpu_llm_ylabel":      "Token / sn",
         "multigpu_1gpu":            "1 GPU",
         "multigpu_ddp":             "2 GPU DDP",
         "multigpu_fsdp":            "2 GPU FSDP",
+        "multigpu_tp":              "2 GPU TP",
         "multigpu_efficiency":      "Ölçekleme Verimi",
         # — VRAM Limits
         "vram_title":               "VRAM Kapasite Karşılaştırması",
@@ -178,7 +180,7 @@ _STRINGS: dict[str, dict[str, str]] = {
         "vram_cat_actual_gb":       "VRAM Kullanımı\n(GB)",
         "vram_cat_context":         "Maks. Bağlam\n(K token)",
         # — CNN vs Transformer
-        "cnn_vs_tf_title":          "CNN vs Transformer — Ortalama Performans",
+        "cnn_vs_tf_title":          "CNN & Transformer — Ortalama Performans",
         "cnn_vs_tf_subtitle":       "Geometrik ortalama (en düşük GPU = 1.0x)",
         "cnn_vs_tf_ylabel":         "Normalize Skor",
         "cnn_vs_tf_cnn":            "CNN Ortalama",
@@ -275,12 +277,14 @@ _STRINGS: dict[str, dict[str, str]] = {
         "relative_subtitle":        "Lowest scoring GPU = 1.0x baseline",
         "relative_xlabel":          "Speedup (x)",
         # — Multi-GPU
-        "multigpu_title":           "Dual-GPU Training Speedup",
-        "multigpu_subtitle":        "1 GPU vs 2 GPU — DDP vs FSDP ZeRO-2",
+        "multigpu_title":           "Dual-GPU Speedup",
+        "multigpu_subtitle":        "1 GPU vs 2 GPU — DDP / FSDP / Tensor Parallelism",
         "multigpu_ylabel":          "Samples / sec",
+        "multigpu_llm_ylabel":      "Tokens / sec",
         "multigpu_1gpu":            "1 GPU",
         "multigpu_ddp":             "2 GPU DDP",
         "multigpu_fsdp":            "2 GPU FSDP",
+        "multigpu_tp":              "2 GPU TP",
         "multigpu_efficiency":      "Scaling Efficiency",
         # — VRAM Limits
         "vram_title":               "VRAM Capacity Comparison",
@@ -289,7 +293,7 @@ _STRINGS: dict[str, dict[str, str]] = {
         "vram_cat_actual_gb":       "VRAM Used\n(GB)",
         "vram_cat_context":         "Max Context\n(K tokens)",
         # — CNN vs Transformer
-        "cnn_vs_tf_title":          "CNN vs Transformer — Average Performance",
+        "cnn_vs_tf_title":          "CNN & Transformer — Average Performance",
         "cnn_vs_tf_subtitle":       "Geometric mean (lowest GPU = 1.0x)",
         "cnn_vs_tf_ylabel":         "Normalized Score",
         "cnn_vs_tf_cnn":            "CNN Average",
@@ -1722,8 +1726,8 @@ def chart_cnn_vs_transformer(d: ComparisonData, out: Path):
 
     cat_data = [
         (S("cnn_vs_tf_cnn"),            cnn_score),
-        (S("cnn_vs_tf_transformer"),     tf_score),
         (S("cnn_vs_tf_cnn_ppw"),         cnn_ppw),
+        (S("cnn_vs_tf_transformer"),     tf_score),
         (S("cnn_vs_tf_transformer_ppw"), tf_ppw),
     ]
 
@@ -1788,32 +1792,56 @@ def chart_cnn_vs_transformer(d: ComparisonData, out: Path):
 
 def chart_dual_gpu(d: ComparisonData, out: Path):
     """Single combined horizontal chart for multi-GPU scaling.
-    Three panels (one per model), horizontal bars: 1-GPU vs 2-GPU DDP vs 2-GPU FSDP.
+
+    Training panels: 1-GPU vs 2-GPU DDP vs 2-GPU FSDP.
+    LLM inference panels: 1-GPU vs 2-GPU tensor parallelism.
     Only includes GPUs that actually ran benchmark 10 (multi-GPU scaling).
     """
-    model_specs = [
+    # ── Training models ───────────────────────────────────────────────────
+    training_model_specs = [
         ("resnet50",   "CNN (ResNet-50)"),
         ("bert_base",  "Transformer (BERT-Base)"),
         ("gpt2_large", "Transformer (GPT-2 Large)"),
     ]
-
-    method_specs = [
+    training_method_specs = [
         ("single", "1gpu", S("multigpu_1gpu"),  0.7),
         ("ddp",    "2gpu", S("multigpu_ddp"),    1.0),
         ("fsdp",   "2gpu", S("multigpu_fsdp"),   1.3),
     ]
+
+    # ── LLM inference models (auto-discovered) ───────────────────────────
+    llm_method_specs = [
+        ("single",          "1gpu", S("multigpu_1gpu"),     0.7),
+        ("tensor_parallel", "2gpu", S("multigpu_tp"),       1.0),
+    ]
+
+    # Discover LLM inference models from metric keys
+    llm_model_specs: list[tuple[str, str]] = []
+    for mid in d.metric_ids():
+        if mid.startswith("multigpu_llm_") and mid.endswith("_single_1gpu_samples_per_sec"):
+            mk = mid.replace("multigpu_", "").replace("_single_1gpu_samples_per_sec", "")
+            nice = mk.replace("llm_", "").replace("_", " ").title()
+            label = f"LLM ({nice})"
+            llm_model_specs.append((mk, label))
 
     # Determine which GPUs actually have multi-GPU data
     all_gpu_names = d.gpu_names()
     has_multigpu = []
     for gi in range(d.n_gpus):
         has_any = False
-        for mk, ml in model_specs:
+        for mk, ml in training_model_specs:
             key = f"multigpu_{mk}_single_1gpu_samples_per_sec"
             v = d.get(key)[gi]
             if v is not None:
                 has_any = True
                 break
+        if not has_any:
+            for mk, ml in llm_model_specs:
+                key = f"multigpu_{mk}_single_1gpu_samples_per_sec"
+                v = d.get(key)[gi]
+                if v is not None:
+                    has_any = True
+                    break
         has_multigpu.append(has_any)
 
     active_indices = [gi for gi, has in enumerate(has_multigpu) if has]
@@ -1823,20 +1851,32 @@ def chart_dual_gpu(d: ComparisonData, out: Path):
     n_active = len(active_indices)
     gpu_names = [all_gpu_names[gi] for gi in active_indices]
 
-    # Check which models have data
-    valid_models = []
-    for model_key, model_label in model_specs:
+    # Build list of (model_key, model_label, method_specs, unit_label) panels
+    panels: list[tuple[str, str, list, str]] = []
+
+    # Training panels
+    for model_key, model_label in training_model_specs:
         key_single = f"multigpu_{model_key}_single_1gpu_samples_per_sec"
         v_single = [d.get(key_single)[gi] for gi in active_indices]
         if any(v is not None for v in v_single):
-            valid_models.append((model_key, model_label))
+            panels.append((model_key, model_label, training_method_specs,
+                           S("multigpu_ylabel")))
 
-    if not valid_models:
+    # LLM inference panels
+    for model_key, model_label in llm_model_specs:
+        key_single = f"multigpu_{model_key}_single_1gpu_samples_per_sec"
+        v_single = [d.get(key_single)[gi] for gi in active_indices]
+        if any(v is not None for v in v_single):
+            panels.append((model_key, model_label, llm_method_specs,
+                           S("multigpu_llm_ylabel")))
+
+    if not panels:
         return
 
-    n_panels = len(valid_models)
+    n_panels = len(panels)
+    max_methods = max(len(ms) for _, _, ms, _ in panels)
     fig_w = max(BASE_FIG_W, 6 * n_panels)
-    fig_h = max(BASE_FIG_H, 2.5 * n_active * len(method_specs) + 3)
+    fig_h = max(BASE_FIG_H, 1.2 * n_active * max_methods + 3)
     fig, axes = plt.subplots(1, n_panels, figsize=(fig_w, fig_h))
     if n_panels == 1:
         axes = [axes]
@@ -1847,15 +1887,15 @@ def chart_dual_gpu(d: ComparisonData, out: Path):
              fontsize=10, color=ACCENT_GREEN, alpha=0.9)
     _watermark(fig)
 
-    n_methods = len(method_specs)
-    vfs = _val_fontsize(n_active * n_methods)
+    vfs = _val_fontsize(n_active * max_methods)
     gfs = _gpu_name_fontsize(n_active)
 
-    for pi, (model_key, model_label) in enumerate(valid_models):
+    for pi, (model_key, model_label, p_methods, unit_label) in enumerate(panels):
         ax = axes[pi]
+        n_methods = len(p_methods)
 
         # Collect values
-        cats = [loc_label for _, _, loc_label, _ in method_specs]
+        cats = [loc_label for _, _, loc_label, _ in p_methods]
         y = np.arange(n_methods)
         total_height = min(0.85, 0.15 * n_active + 0.25)
         bar_h = total_height / n_active
@@ -1867,7 +1907,7 @@ def chart_dual_gpu(d: ComparisonData, out: Path):
 
             vals: list[float] = []
             effs: list[str] = []
-            for method, n_tag, _, shade in method_specs:
+            for method, n_tag, _, shade in p_methods:
                 key_t = f"multigpu_{model_key}_{method}_{n_tag}_samples_per_sec"
                 key_e = f"multigpu_{model_key}_{method}_{n_tag}_eff_pct"
                 v = d.get(key_t)[gi_global]
@@ -1894,15 +1934,20 @@ def chart_dual_gpu(d: ComparisonData, out: Path):
                             bar.get_y() + bar.get_height() / 2,
                             ann, va="center", fontsize=vfs,
                             color=TEXT_COLOR, fontweight="bold")
+                    # Use "2xGPUNAME" for multi-GPU bars
+                    method_tag = p_methods[ci][0]
+                    bar_label = (f"2x{gpu_names[gi_local]}"
+                                 if method_tag != "single"
+                                 else gpu_names[gi_local])
                     pad = max(all_vals) * 0.01 if all_vals else 0
                     ax.text(pad, bar.get_y() + bar.get_height() / 2,
-                            gpu_names[gi_local], ha="left", va="center",
+                            bar_label, ha="left", va="center",
                             fontsize=gfs, color=BG_COLOR, fontweight="bold",
                             alpha=0.85, clip_on=True)
 
         ax.set_yticks(y)
         ax.set_yticklabels(cats, fontsize=_tick_fontsize(n_active))
-        ax.set_xlabel(S("multigpu_ylabel"), fontsize=11)
+        ax.set_xlabel(unit_label, fontsize=11)
         ax.set_title(model_label, fontsize=14, color=ACCENT_BLUE, pad=10)
         ax.grid(axis="x", linestyle="--", zorder=0)
         ax.set_axisbelow(True)
