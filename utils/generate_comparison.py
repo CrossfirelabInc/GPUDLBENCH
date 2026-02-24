@@ -992,7 +992,6 @@ def _grouped_bar(ax, categories: list[str], gpu_names: list[str],
     ax.set_axisbelow(True)
     max_v = max(all_vals) if all_vals else 1
     ax.set_ylim(0, max_v * 1.18)
-    ax.legend(**_legend_kwargs(n_gpus))
 
 
 def _horizontal_grouped_bar(ax, categories: list[str], gpu_names: list[str],
@@ -1058,7 +1057,6 @@ def _horizontal_grouped_bar(ax, categories: list[str], gpu_names: list[str],
     ax.set_axisbelow(True)
     ax.set_xlim(0, max_v_pre * 1.30)
     ax.invert_yaxis()
-    ax.legend(**_legend_kwargs(n_gpus))
 
 
 def _build_bs_annotations(d: "ComparisonData", bs_keys: list[str]) -> list[list[str]]:
@@ -1307,17 +1305,6 @@ def chart_llm(d: ComparisonData, out: Path):
     ax.set_axisbelow(True)
     ax.set_xlim(0, max_v * 1.20)
 
-    # Legend with GPU colors (unique GPUs only)
-    seen = set()
-    handles = []
-    for gi in range(n_gpus):
-        if gi not in seen:
-            seen.add(gi)
-            handles.append(plt.Rectangle((0, 0), 1, 1,
-                           fc=GPU_COLORS[gi % len(GPU_COLORS)],
-                           label=all_gpu_names[gi]))
-    ax.legend(handles=handles, **_legend_kwargs(n_gpus))
-
     fig.tight_layout(rect=[0, 0.02, 1, 0.92])
     _save(fig, out / "cmp_llm.png")
 
@@ -1398,7 +1385,6 @@ def chart_fundamentals(d: ComparisonData, out: Path):
     ax.invert_yaxis()
     max_v = max(all_vals) if all_vals else 1
     ax.set_xlim(0, max_v * 1.25)
-    ax.legend(**_legend_kwargs(n_gpus))
     fig.tight_layout(rect=[0, 0.02, 1, 0.92])
     _save(fig, out / "cmp_fundamentals.png")
 
@@ -1730,7 +1716,6 @@ def chart_relative_performance(d: ComparisonData, out: Path):
     ax.set_axisbelow(True)
     ax.set_xlim(0, max_v * 1.25)
     ax.invert_yaxis()
-    ax.legend(**_legend_kwargs(n_gpus))
     fig.tight_layout(rect=[0, 0.02, 1, 0.92])
     _save(fig, out / "cmp_relative_performance.png")
 
@@ -1900,7 +1885,6 @@ def chart_cnn_vs_transformer(d: ComparisonData, out: Path):
     ax.set_axisbelow(True)
     ax.set_xlim(0, max_v * 1.25)
     ax.invert_yaxis()
-    ax.legend(**_legend_kwargs(n_gpus))
     fig.tight_layout(rect=[0, 0.02, 1, 0.92])
     _save(fig, out / "cmp_cnn_vs_transformer.png")
 
@@ -2035,15 +2019,6 @@ def chart_dual_gpu(d: ComparisonData, out: Path):
         ax.set_xlim(0, max_v * 1.35)
         ax.invert_yaxis()
 
-    # Single legend for all panels
-    if n_active > 1:
-        handles = []
-        for gi_local, gi_global in enumerate(active_indices):
-            handles.append(plt.Rectangle((0, 0), 1, 1,
-                           fc=GPU_COLORS[gi_global % len(GPU_COLORS)],
-                           label=gpu_names[gi_local]))
-        axes[-1].legend(handles=handles, **_legend_kwargs(n_active))
-
     fig.text(0.5, 0.92, S("multigpu_subtitle"), ha="center",
              fontsize=13, color=SUBTEXT_COLOR)
     fig.tight_layout(rect=[0, 0.02, 1, 0.90])
@@ -2126,7 +2101,6 @@ def chart_vram_limits(d: ComparisonData, out: Path):
     ax.invert_yaxis()
     max_v = max(all_vals) if all_vals else 1
     ax.set_xlim(0, max_v * 1.25)
-    ax.legend(**_legend_kwargs(n_gpus))
     fig.tight_layout(rect=[0, 0.02, 1, 0.92])
     _save(fig, out / "cmp_vram_limits.png")
 
