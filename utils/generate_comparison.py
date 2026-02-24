@@ -2245,7 +2245,7 @@ def chart_scorecard(d: ComparisonData, out: Path):
 
     # llmfit — Best Loadable LLM per VRAM tier
     gpu_vram_vals = d.get("gpu_vram_gb")
-    llmfit_json_path = Path(__file__).resolve().parent.parent / "data" / "llmfit_vram_tiers.json"
+    llmfit_json_path = Path(__file__).resolve().parent.parent / "benchmarks" / "llmfit_vram_tiers.json"
     if any(v is not None for v in gpu_vram_vals) and llmfit_json_path.exists():
         try:
             with llmfit_json_path.open() as _f:

@@ -1,0 +1,521 @@
+{
+  "_description": "Best loadable LLM models per VRAM tier, sourced from llmfit model database (github.com/AlexsJones/llmfit). Memory estimates use dynamic quantization (best quality that fits). MoE VRAM = active expert params only; inactive offloaded to RAM.",
+  "_updated": "2026-02-24",
+  "_llmfit_version": "0.4.x",
+  "_quantization_hierarchy": ["Q8_0", "Q6_K", "Q5_K_M", "Q4_K_M", "Q3_K_M", "Q2_K"],
+  "_quantization_bytes_per_param": {"Q8_0": 1.0, "Q6_K": 0.75, "Q5_K_M": 0.625, "Q4_K_M": 0.5, "Q3_K_M": 0.4375, "Q2_K": 0.3125},
+  "vram_tiers": {
+    "16": {
+      "vram_gb": 16,
+      "label": "16 GB",
+      "top_models": [
+        {
+          "name": "Qwen3-14B",
+          "provider": "Alibaba",
+          "params_b": 14.8,
+          "best_quant": "Q4_K_M",
+          "vram_required_gb": 10.4,
+          "context_length": 40960,
+          "fit": "Perfect",
+          "run_mode": "GPU",
+          "use_case": "General purpose"
+        },
+        {
+          "name": "Mistral-Small-3.1-24B",
+          "provider": "Mistral AI",
+          "params_b": 24.0,
+          "best_quant": "Q4_K_M",
+          "vram_required_gb": 14.4,
+          "context_length": 131072,
+          "fit": "Marginal",
+          "run_mode": "GPU",
+          "use_case": "Multimodal, vision"
+        },
+        {
+          "name": "Gemma-3-12B",
+          "provider": "Google",
+          "params_b": 12.0,
+          "best_quant": "Q6_K",
+          "vram_required_gb": 11.5,
+          "context_length": 131072,
+          "fit": "Good",
+          "run_mode": "GPU",
+          "use_case": "Multimodal, vision"
+        },
+        {
+          "name": "Phi-4",
+          "provider": "Microsoft",
+          "params_b": 14.0,
+          "best_quant": "Q4_K_M",
+          "vram_required_gb": 9.8,
+          "context_length": 16384,
+          "fit": "Perfect",
+          "run_mode": "GPU",
+          "use_case": "Reasoning, STEM, code"
+        },
+        {
+          "name": "DeepSeek-R1-Distill-Qwen-7B",
+          "provider": "DeepSeek",
+          "params_b": 7.6,
+          "best_quant": "Q8_0",
+          "vram_required_gb": 9.1,
+          "context_length": 131072,
+          "fit": "Perfect",
+          "run_mode": "GPU",
+          "use_case": "Advanced reasoning"
+        }
+      ],
+      "largest_quantized": [
+        {
+          "name": "Falcon-40B",
+          "provider": "TII",
+          "params_b": 40.0,
+          "best_quant": "Q2_K",
+          "vram_required_gb": 15.0,
+          "fit": "Marginal",
+          "run_mode": "GPU",
+          "use_case": "General purpose",
+          "note": "Largest dense model loadable at aggressive Q2_K"
+        },
+        {
+          "name": "CodeLlama-34B",
+          "provider": "Meta",
+          "params_b": 33.7,
+          "best_quant": "Q2_K",
+          "vram_required_gb": 12.6,
+          "fit": "Good",
+          "run_mode": "GPU",
+          "use_case": "Code generation"
+        },
+        {
+          "name": "Llama-4-Maverick-400B (MoE)",
+          "provider": "Meta",
+          "params_b": 400.0,
+          "active_params_b": 17.0,
+          "best_quant": "Q4_K_M",
+          "vram_required_gb": 10.2,
+          "fit": "Perfect",
+          "run_mode": "MoE",
+          "use_case": "Multimodal, vision",
+          "note": "400B total params, only ~17B active per token"
+        },
+        {
+          "name": "Qwen3-235B-A22B (MoE)",
+          "provider": "Alibaba",
+          "params_b": 235.0,
+          "active_params_b": 22.0,
+          "best_quant": "Q4_K_M",
+          "vram_required_gb": 13.2,
+          "fit": "Good",
+          "run_mode": "MoE",
+          "use_case": "General purpose",
+          "note": "235B total, ~22B active — fits in VRAM with expert offloading"
+        },
+        {
+          "name": "Llama-4-Scout-109B (MoE)",
+          "provider": "Meta",
+          "params_b": 109.0,
+          "active_params_b": 17.0,
+          "best_quant": "Q4_K_M",
+          "vram_required_gb": 10.2,
+          "fit": "Perfect",
+          "run_mode": "MoE",
+          "use_case": "Multimodal, vision",
+          "note": "109B total, ~17B active per token"
+        }
+      ],
+      "largest_dense_model": "Falcon-40B (40B Q2_K)",
+      "largest_moe_model": "Llama-4-Maverick (400B MoE, ~17B active Q4_K_M)"
+    },
+    "24": {
+      "vram_gb": 24,
+      "label": "24 GB",
+      "top_models": [
+        {
+          "name": "Qwen3-32B",
+          "provider": "Alibaba",
+          "params_b": 32.8,
+          "best_quant": "Q4_K_M",
+          "vram_required_gb": 19.7,
+          "context_length": 40960,
+          "fit": "Good",
+          "run_mode": "GPU",
+          "use_case": "General purpose"
+        },
+        {
+          "name": "DeepSeek-R1-Distill-Qwen-32B",
+          "provider": "DeepSeek",
+          "params_b": 32.8,
+          "best_quant": "Q4_K_M",
+          "vram_required_gb": 19.7,
+          "context_length": 131072,
+          "fit": "Good",
+          "run_mode": "GPU",
+          "use_case": "Advanced reasoning"
+        },
+        {
+          "name": "Gemma-3-27B",
+          "provider": "Google",
+          "params_b": 27.0,
+          "best_quant": "Q4_K_M",
+          "vram_required_gb": 16.2,
+          "context_length": 131072,
+          "fit": "Perfect",
+          "run_mode": "GPU",
+          "use_case": "General purpose"
+        },
+        {
+          "name": "Qwen2.5-Coder-32B",
+          "provider": "Alibaba",
+          "params_b": 32.8,
+          "best_quant": "Q4_K_M",
+          "vram_required_gb": 19.7,
+          "context_length": 32768,
+          "fit": "Good",
+          "run_mode": "GPU",
+          "use_case": "Code generation"
+        },
+        {
+          "name": "Mistral-Small-3.1-24B",
+          "provider": "Mistral AI",
+          "params_b": 24.0,
+          "best_quant": "Q6_K",
+          "vram_required_gb": 19.9,
+          "context_length": 131072,
+          "fit": "Good",
+          "run_mode": "GPU",
+          "use_case": "Multimodal, vision"
+        }
+      ],
+      "largest_quantized": [
+        {
+          "name": "Llama-3.3-70B",
+          "provider": "Meta",
+          "params_b": 70.6,
+          "best_quant": "Q2_K",
+          "vram_required_gb": 23.6,
+          "fit": "Marginal",
+          "run_mode": "GPU",
+          "use_case": "General purpose",
+          "note": "70B at aggressive Q2_K — tight fit, usable"
+        },
+        {
+          "name": "Qwen2.5-72B",
+          "provider": "Alibaba",
+          "params_b": 72.7,
+          "best_quant": "Q2_K",
+          "vram_required_gb": 24.3,
+          "fit": "Marginal",
+          "run_mode": "GPU",
+          "use_case": "General purpose",
+          "note": "72B at Q2_K — very tight"
+        },
+        {
+          "name": "DeepSeek-R1-671B (MoE)",
+          "provider": "DeepSeek",
+          "params_b": 671.0,
+          "active_params_b": 37.0,
+          "best_quant": "Q4_K_M",
+          "vram_required_gb": 22.2,
+          "fit": "Good",
+          "run_mode": "MoE",
+          "use_case": "Advanced reasoning",
+          "note": "671B total, ~37B active — expert offloading to RAM"
+        },
+        {
+          "name": "Qwen3-Coder-480B-A35B (MoE)",
+          "provider": "Alibaba",
+          "params_b": 480.0,
+          "active_params_b": 35.0,
+          "best_quant": "Q4_K_M",
+          "vram_required_gb": 21.0,
+          "fit": "Good",
+          "run_mode": "MoE",
+          "use_case": "Code generation",
+          "note": "480B total, ~35B active per token"
+        },
+        {
+          "name": "Llama-4-Maverick-400B (MoE)",
+          "provider": "Meta",
+          "params_b": 400.0,
+          "active_params_b": 17.0,
+          "best_quant": "Q8_0",
+          "vram_required_gb": 20.4,
+          "fit": "Good",
+          "run_mode": "MoE",
+          "use_case": "Multimodal, vision",
+          "note": "400B total, ~17B active — Q8_0 quality at 24GB"
+        }
+      ],
+      "largest_dense_model": "Qwen2.5-72B (72.7B Q2_K)",
+      "largest_moe_model": "DeepSeek-R1 (671B MoE, ~37B active Q4_K_M)"
+    },
+    "32": {
+      "vram_gb": 32,
+      "label": "32 GB",
+      "top_models": [
+        {
+          "name": "Qwen3-32B",
+          "provider": "Alibaba",
+          "params_b": 32.8,
+          "best_quant": "Q6_K",
+          "vram_required_gb": 27.2,
+          "context_length": 40960,
+          "fit": "Good",
+          "run_mode": "GPU",
+          "use_case": "General purpose"
+        },
+        {
+          "name": "DeepSeek-R1-Distill-Qwen-32B",
+          "provider": "DeepSeek",
+          "params_b": 32.8,
+          "best_quant": "Q6_K",
+          "vram_required_gb": 27.2,
+          "context_length": 131072,
+          "fit": "Good",
+          "run_mode": "GPU",
+          "use_case": "Advanced reasoning"
+        },
+        {
+          "name": "Llama-3.3-70B",
+          "provider": "Meta",
+          "params_b": 70.6,
+          "best_quant": "Q3_K_M",
+          "vram_required_gb": 30.0,
+          "context_length": 131072,
+          "fit": "Marginal",
+          "run_mode": "GPU",
+          "use_case": "General purpose"
+        },
+        {
+          "name": "Qwen2.5-Coder-32B",
+          "provider": "Alibaba",
+          "params_b": 32.8,
+          "best_quant": "Q6_K",
+          "vram_required_gb": 27.2,
+          "context_length": 32768,
+          "fit": "Good",
+          "run_mode": "GPU",
+          "use_case": "Code generation"
+        },
+        {
+          "name": "Gemma-3-27B",
+          "provider": "Google",
+          "params_b": 27.0,
+          "best_quant": "Q8_0",
+          "vram_required_gb": 28.6,
+          "context_length": 131072,
+          "fit": "Good",
+          "run_mode": "GPU",
+          "use_case": "General purpose"
+        }
+      ],
+      "largest_quantized": [
+        {
+          "name": "Mistral-Large-123B",
+          "provider": "Mistral AI",
+          "params_b": 123.0,
+          "best_quant": "Q2_K",
+          "vram_required_gb": 30.7,
+          "fit": "Marginal",
+          "run_mode": "GPU",
+          "use_case": "Large-scale instruction",
+          "note": "123B at Q2_K — largest dense model at 32GB"
+        },
+        {
+          "name": "Llama-3.3-70B",
+          "provider": "Meta",
+          "params_b": 70.6,
+          "best_quant": "Q3_K_M",
+          "vram_required_gb": 30.0,
+          "fit": "Marginal",
+          "run_mode": "GPU",
+          "use_case": "General purpose",
+          "note": "70B at Q3_K_M — better quality than Q2_K"
+        },
+        {
+          "name": "Qwen2.5-72B",
+          "provider": "Alibaba",
+          "params_b": 72.7,
+          "best_quant": "Q3_K_M",
+          "vram_required_gb": 31.2,
+          "fit": "Marginal",
+          "run_mode": "GPU",
+          "use_case": "General purpose"
+        },
+        {
+          "name": "DeepSeek-R1-671B (MoE)",
+          "provider": "DeepSeek",
+          "params_b": 671.0,
+          "active_params_b": 37.0,
+          "best_quant": "Q6_K",
+          "vram_required_gb": 29.6,
+          "fit": "Good",
+          "run_mode": "MoE",
+          "use_case": "Advanced reasoning",
+          "note": "671B total, ~37B active — Q6_K quality with expert offloading"
+        },
+        {
+          "name": "Kimi-K2-1000B (MoE)",
+          "provider": "Moonshot",
+          "params_b": 1000.0,
+          "active_params_b": 32.0,
+          "best_quant": "Q4_K_M",
+          "vram_required_gb": 19.2,
+          "fit": "Perfect",
+          "run_mode": "MoE",
+          "use_case": "Reasoning",
+          "note": "1 TRILLION params total, ~32B active — expert offloading"
+        }
+      ],
+      "largest_dense_model": "Mistral-Large-123B (123B Q2_K)",
+      "largest_moe_model": "Kimi-K2 (1000B MoE, ~32B active Q4_K_M)"
+    },
+    "48": {
+      "vram_gb": 48,
+      "label": "48 GB",
+      "top_models": [
+        {
+          "name": "Qwen2.5-72B",
+          "provider": "Alibaba",
+          "params_b": 72.7,
+          "best_quant": "Q4_K_M",
+          "vram_required_gb": 43.6,
+          "context_length": 32768,
+          "fit": "Good",
+          "run_mode": "GPU",
+          "use_case": "General purpose"
+        },
+        {
+          "name": "Llama-3.3-70B",
+          "provider": "Meta",
+          "params_b": 70.6,
+          "best_quant": "Q4_K_M",
+          "vram_required_gb": 42.4,
+          "context_length": 131072,
+          "fit": "Good",
+          "run_mode": "GPU",
+          "use_case": "General purpose"
+        },
+        {
+          "name": "DeepSeek-R1-Distill-Qwen-32B",
+          "provider": "DeepSeek",
+          "params_b": 32.8,
+          "best_quant": "Q8_0",
+          "vram_required_gb": 34.7,
+          "context_length": 131072,
+          "fit": "Perfect",
+          "run_mode": "GPU",
+          "use_case": "Advanced reasoning"
+        },
+        {
+          "name": "Qwen3-32B",
+          "provider": "Alibaba",
+          "params_b": 32.8,
+          "best_quant": "Q8_0",
+          "vram_required_gb": 34.7,
+          "context_length": 40960,
+          "fit": "Perfect",
+          "run_mode": "GPU",
+          "use_case": "General purpose"
+        },
+        {
+          "name": "Mistral-Large-123B",
+          "provider": "Mistral AI",
+          "params_b": 123.0,
+          "best_quant": "Q2_K",
+          "vram_required_gb": 44.3,
+          "context_length": 131072,
+          "fit": "Marginal",
+          "run_mode": "GPU",
+          "use_case": "Large-scale instruction"
+        }
+      ],
+      "largest_quantized": [
+        {
+          "name": "Falcon-180B",
+          "provider": "TII",
+          "params_b": 180.0,
+          "best_quant": "Q2_K",
+          "vram_required_gb": 45.0,
+          "fit": "Marginal",
+          "run_mode": "GPU",
+          "use_case": "General purpose",
+          "note": "180B at Q2_K — largest dense model at 48GB"
+        },
+        {
+          "name": "Mistral-Large-123B",
+          "provider": "Mistral AI",
+          "params_b": 123.0,
+          "best_quant": "Q3_K_M",
+          "vram_required_gb": 45.5,
+          "fit": "Marginal",
+          "run_mode": "GPU",
+          "use_case": "Large-scale instruction",
+          "note": "123B at Q3_K_M — better quality than Q2_K"
+        },
+        {
+          "name": "Llama-3.1-405B (Q2_K)",
+          "provider": "Meta",
+          "params_b": 405.9,
+          "best_quant": "Q2_K",
+          "vram_required_gb": "too_large",
+          "fit": "Too Tight",
+          "run_mode": "CPU+GPU",
+          "use_case": "General purpose",
+          "note": "405B Q2_K needs ~128GB — requires CPU+GPU offload or multi-GPU"
+        },
+        {
+          "name": "Kimi-K2-1000B (MoE)",
+          "provider": "Moonshot",
+          "params_b": 1000.0,
+          "active_params_b": 32.0,
+          "best_quant": "Q8_0",
+          "vram_required_gb": 38.4,
+          "fit": "Good",
+          "run_mode": "MoE",
+          "use_case": "Reasoning",
+          "note": "1 TRILLION params, ~32B active — Q8_0 quality at 48GB"
+        },
+        {
+          "name": "DeepSeek-R1-671B (MoE)",
+          "provider": "DeepSeek",
+          "params_b": 671.0,
+          "active_params_b": 37.0,
+          "best_quant": "Q8_0",
+          "vram_required_gb": 44.4,
+          "fit": "Good",
+          "run_mode": "MoE",
+          "use_case": "Advanced reasoning",
+          "note": "671B total, ~37B active — full Q8_0 quality"
+        },
+        {
+          "name": "DeepSeek-V3-685B (MoE)",
+          "provider": "DeepSeek",
+          "params_b": 685.0,
+          "active_params_b": 37.0,
+          "best_quant": "Q8_0",
+          "vram_required_gb": 44.4,
+          "fit": "Good",
+          "run_mode": "MoE",
+          "use_case": "State-of-the-art",
+          "note": "685B total, ~37B active — full Q8_0 quality"
+        },
+        {
+          "name": "Llama-4-Maverick-400B (MoE)",
+          "provider": "Meta",
+          "params_b": 400.0,
+          "active_params_b": 17.0,
+          "best_quant": "Q8_0",
+          "vram_required_gb": 20.4,
+          "fit": "Perfect",
+          "run_mode": "MoE",
+          "use_case": "Multimodal, vision",
+          "note": "400B total, ~17B active — plenty of room at 48GB"
+        }
+      ],
+      "largest_dense_model": "Falcon-180B (180B Q2_K)",
+      "largest_moe_model": "Kimi-K2 (1000B MoE, ~32B active Q8_0)"
+    }
+  }
+}

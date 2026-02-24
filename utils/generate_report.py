@@ -253,7 +253,7 @@ def generate_markdown_report(data: dict[str, Any], session_id: str = "", session
 
     # ── llmfit — Best Loadable LLMs for this GPU ─────────────────────────
     vram_gb = meta.get("vram_gb", 0)
-    llmfit_path = Path(__file__).resolve().parent.parent / "data" / "llmfit_vram_tiers.json"
+    llmfit_path = Path(__file__).resolve().parent.parent / "benchmarks" / "llmfit_vram_tiers.json"
     if vram_gb > 0 and llmfit_path.exists():
         try:
             with llmfit_path.open() as _f:
