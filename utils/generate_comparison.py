@@ -199,6 +199,7 @@ _STRINGS: dict[str, dict[str, str]] = {
         "score_llmfit_best":        "En İyi Yüklenebilir LLM",
         "score_llmfit_largest":     "En Büyük Dense LLM",
         "score_llmfit_moe":         "En Büyük MoE LLM",
+        "score_llmfit_disclaimer":  "* LLM önerileri teorik VRAM tahminlerine dayalıdır (llmfit veritabanı). Gerçek performans; quantization, bağlam uzunluğu ve sistem yapılandırmasına göre değişebilir.",
         "score_max_train_tput":     "Maks. Eğitim Verimi",
         "score_max_infer_tput":     "Maks. Çıkarım Verimi",
         "score_power":              "Ort. Güç Tüketimi\n(Test Sırasında)",
@@ -316,6 +317,7 @@ _STRINGS: dict[str, dict[str, str]] = {
         "score_llmfit_best":        "Best Loadable LLM",
         "score_llmfit_largest":     "Largest Dense LLM",
         "score_llmfit_moe":         "Largest MoE LLM",
+        "score_llmfit_disclaimer":  "* LLM recommendations are theoretical VRAM estimates (llmfit database). Actual fit depends on quantization, context length, and system configuration.",
         "score_max_train_tput":     "Max Training Throughput",
         "score_max_infer_tput":     "Max Inference Throughput",
         "score_power":              "Avg Power Draw\n(During Test)",
@@ -2368,8 +2370,13 @@ def chart_scorecard(d: ComparisonData, out: Path):
                         fontsize=12, fontweight="bold",
                         color=GPU_COLORS[gi % len(GPU_COLORS)])
 
+    # Disclaimer for LLM fit recommendations
+    fig.text(0.5, 0.01, S("score_llmfit_disclaimer"),
+             ha="center", va="bottom", fontsize=8,
+             color=SUBTEXT_COLOR, style="italic", alpha=0.8)
+
     _watermark(fig)
-    fig.tight_layout(rect=[0, 0.02, 1, 0.92])
+    fig.tight_layout(rect=[0, 0.04, 1, 0.92])
     _save(fig, out / "cmp_scorecard.png")
 
 
