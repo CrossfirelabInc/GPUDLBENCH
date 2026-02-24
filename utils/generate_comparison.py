@@ -2062,7 +2062,7 @@ def chart_dual_gpu(d: ComparisonData, out: Path):
                     if eff:
                         ann += f" ({eff})"
                     ax.text(v + max(all_vals) * 0.01 if all_vals else v * 0.01,
-                            bar.get_y() + bar.get_height() / 2,
+                            cy,
                             ann, va="center", fontsize=vfs,
                             color=TEXT_COLOR, fontweight="bold")
                     # Use "2xGPUNAME" for multi-GPU bars
@@ -2071,7 +2071,7 @@ def chart_dual_gpu(d: ComparisonData, out: Path):
                                  if method_tag != "single"
                                  else gpu_names[gi_local])
                     pad = max(all_vals) * 0.01 if all_vals else 0
-                    ax.text(pad, bar.get_y() + bar.get_height() / 2,
+                    ax.text(pad, cy,
                             bar_label, ha="left", va="center",
                             fontsize=gfs, color=BG_COLOR, fontweight="bold",
                             alpha=0.85, clip_on=True)
@@ -2361,14 +2361,11 @@ def chart_scorecard(d: ComparisonData, out: Path):
 
     fig_w = max(BASE_FIG_W, 4.5 * n_gpus + 3)
     fig = plt.figure(figsize=(fig_w, BASE_FIG_H))
-    title_parts = " vs ".join(gpu_names)
-    fig.suptitle(f"{S('score_title')} \u2014 {title_parts}", fontsize=22, fontweight="bold",
+    fig.suptitle(S('score_title'), fontsize=22, fontweight="bold",
                  color=TEXT_COLOR, y=0.97)
 
     n_rows = len(rows)
     n_cols = n_gpus + 1
-
-    lower_is_better_labels = {S("score_power"), S("score_temp")}
 
     for ri, (label, unit, fmt, vals, detail) in enumerate(rows):
         ax = fig.add_subplot(n_rows, n_cols, ri * n_cols + 1)
@@ -2376,28 +2373,16 @@ def chart_scorecard(d: ComparisonData, out: Path):
         ax.text(0.95, 0.5, label, ha="right", va="center",
                 fontsize=12, color=SUBTEXT_COLOR, fontweight="bold")
 
-        valid = [(i, v) for i, v in enumerate(vals)
-                 if v is not None and isinstance(v, (int, float))]
-        lower_is_better = label in lower_is_better_labels
-        if valid:
-            best_idx = min(valid, key=lambda x: x[1])[0] if lower_is_better \
-                       else max(valid, key=lambda x: x[1])[0]
-        else:
-            best_idx = -1
-
         for gi in range(n_gpus):
             ax = fig.add_subplot(n_rows, n_cols, ri * n_cols + 2 + gi)
             ax.set_xlim(0, 1); ax.set_ylim(0, 1); ax.axis("off")
 
             v = vals[gi]
             color = GPU_COLORS[gi % len(GPU_COLORS)]
-            is_winner = (gi == best_idx and n_gpus > 1)
 
-            ec = ACCENT_GREEN if is_winner else GRID_COLOR
-            lw = 2.5 if is_winner else 1
             rect = FancyBboxPatch((0.05, 0.1), 0.9, 0.8,
                                    boxstyle="round,pad=0.05",
-                                   facecolor=CARD_COLOR, edgecolor=ec, linewidth=lw)
+                                   facecolor=CARD_COLOR, edgecolor=GRID_COLOR, linewidth=1)
             ax.add_patch(rect)
 
             if v is not None:
@@ -2410,15 +2395,17 @@ def chart_scorecard(d: ComparisonData, out: Path):
 
                 has_detail = detail and gi < len(detail) and detail[gi] is not None
                 val_y = 0.62 if has_detail else 0.55
+                # Auto-shrink font for long text (e.g. MoE LLM model names)
+                val_fs = 15
+                if len(val_str) > 20:
+                    val_fs = 10
+                elif len(val_str) > 14:
+                    val_fs = 12
                 ax.text(0.5, val_y, val_str, ha="center", va="center",
-                        fontsize=15, fontweight="bold", color=color)
+                        fontsize=val_fs, fontweight="bold", color=color)
                 if has_detail:
                     ax.text(0.5, 0.32, str(detail[gi]), ha="center", va="center",
                             fontsize=9, color=SUBTEXT_COLOR, style="italic")
-                if is_winner and n_gpus > 1:
-                    best_y = 0.15 if has_detail else 0.18
-                    ax.text(0.5, best_y, S("score_best"), ha="center", va="center",
-                            fontsize=9, fontweight="bold", color=ACCENT_GREEN)
             else:
                 ax.text(0.5, 0.5, "N/A", ha="center", va="center",
                         fontsize=13, color=SUBTEXT_COLOR)

@@ -194,6 +194,54 @@ Karşılaştırma grafiklerinde bu durum **iki ayrı grafik türü** ile göster
 
 ---
 
+## GPU Skor Kartı (GPU Scorecard)
+
+Karşılaştırma grafiklerinin en sonunda yer alan **GPU Scorecard** tablosu, tüm benchmark sonuçlarını tek bir bakışta özetler. Her satır bir metriği, her sütun bir GPU'yu temsil eder. Her kategoride en iyi sonucu alan GPU yeşil çerçeve ve ★ BEST etiketi ile vurgulanır.
+
+Skor kartında gösterilen başlıca metrikler:
+- **Eğitim/çıkarım throughput** — en yüksek değerler
+- **LLM hızı** — en iyi modelin token/s değeri
+- **VRAM kapasitesi** — en büyük yüklenebilir model ve bağlam uzunluğu
+- **LLMFit önerileri** — VRAM'e göre en iyi, en büyük Dense ve en büyük MoE LLM önerileri (aşağıda açıklanmıştır)
+- **Güç tüketimi & sıcaklık** — düşük olan daha iyi
+
+---
+
+## Dense vs MoE (Mixture of Experts) Model Mimarisi
+
+Scorecard'da "En Büyük Dense LLM" ve "En Büyük MoE LLM" satırları yer alır. Bu iki mimari arasındaki fark, modern yapay zekada GPU seçimini doğrudan etkiler:
+
+### Dense Model Nedir?
+Geleneksel derin öğrenme mimarisidir. Modeldeki **tüm parametreler her token için aktif olarak** kullanılır.
+
+- Örnek: Llama-3.1-70B, Qwen2.5-72B, Falcon-40B
+- 70B Dense model = her token üretilirken 70 milyar parametre hesaplanır
+- **Avantaj:** Basit mimari, öngörülebilir performans, düşük gecikme
+- **Dezavantaj:** VRAM ihtiyacı yüksek — 70B Q4 ≈ ~40 GB VRAM gerektirir
+- **VRAM kuralı:** Tüm parametreler GPU belleğine yüklenmelidir
+
+### MoE (Mixture of Experts) Model Nedir?
+Modelin toplam parametreleri çok büyüktür (örneğin 671B), ancak her token için yalnızca **küçük bir "uzman" alt kümesi** aktif olur.
+
+- Örnek: DeepSeek-R1 (671B toplam, ~37B aktif), Llama-4-Maverick (400B toplam, ~17B aktif), Qwen3-235B-A22B (235B toplam, ~22B aktif)
+- **Avantaj:** Devasa bilgi kapasitesi çok daha az hesaplama ile kullanılır. 671B MoE model, hız olarak ~37B Dense model gibi çalışır.
+- **Dezavantaj:** Toplam parametre sayısı VRAM'e sığmalıdır (veya kısmen RAM'e "offload" edilmelidir). Routing mekanizması ek gecikme ekler.
+- **VRAM kuralı:** Aktif uzman parametreleri GPU belleğinde tutulur, geri kalanı RAM'e aktarılabilir (ancak bu durumda hız düşer)
+
+### Pratikte Ne Anlama Geliyor?
+
+| Özellik | Dense (örn. 70B) | MoE (örn. DeepSeek-R1 671B) |
+|---------|-------------------|------------------------------|
+| Toplam parametre | 70B | 671B |
+| Token başına aktif parametre | 70B | ~37B |
+| VRAM ihtiyacı (Q4_K_M) | ~40 GB | ~37 GB (aktif) + RAM offload |
+| Token/s hızı | Orta | Yüksek (aktif kısım küçük) |
+| Bilgi kapasitesi | 70B düzeyinde | 671B düzeyinde (çok daha geniş) |
+
+> **Özet:** MoE modeller, sınırlı VRAM ile devasa parametrelere erişim sağlar. 24 GB VRAM'li bir GPU, Dense mimaride en fazla ~30B model çalıştırabilirken, MoE mimaride 400B parametreli bir modelin aktif kısmını çalıştırabilir. Ancak toplam model boyutu yine de sistem RAM'ine sığmalıdır.
+
+---
+
 ## Sonuçları Nasıl Okumalı?
 
 1. **Eğitim testleri** → "Bu GPU ile modelimi ne kadar hızlı eğitirim?"
@@ -205,3 +253,5 @@ Karşılaştırma grafiklerinde bu durum **iki ayrı grafik türü** ile göster
 7. **Görece performans** → "Bu GPU, en zayıf rakibinden kaç kat hızlı?"
 8. **Çift GPU testi** → "İkinci GPU gerçekten işe yarıyor mu?"
 9. **Maks. verim vs Aynı BS** → "Fark VRAM'den mi yoksa saf güçten mi geliyor?"
+10. **Skor kartı** → "Tüm testlerde hangi GPU öne çıkıyor?"
+11. **Dense vs MoE** → "VRAM'ime en büyük hangi model sığar?"
