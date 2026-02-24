@@ -2217,9 +2217,11 @@ def chart_scorecard(d: ComparisonData, out: Path):
                 if vram is None:
                     continue
                 # Find the best matching tier (largest tier <= GPU VRAM)
+                # Use 0.93× threshold to account for GiB vs GB difference
+                # (e.g. a "24 GB" GPU reports ~23.5 GiB)
                 matched_tier = None
                 for tk in tier_keys:
-                    if int(tk) <= vram:
+                    if int(tk) * 0.93 <= vram:
                         matched_tier = tk
                 # Fall back to smallest tier if GPU is below all tiers
                 if matched_tier is None:
