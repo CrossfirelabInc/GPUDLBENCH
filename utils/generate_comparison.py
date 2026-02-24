@@ -201,9 +201,10 @@ _STRINGS: dict[str, dict[str, str]] = {
         "score_llmfit_moe":         "En Büyük MoE LLM",
         "score_max_train_tput":     "Maks. Eğitim Verimi",
         "score_max_infer_tput":     "Maks. Çıkarım Verimi",
-        "score_power":              "Ort. Güç Tüketimi",
-        "score_temp":               "Ort. Sıcaklık",
-        "score_dlperf":             "DLPerf Skoru",
+        "score_power":              "Ort. Güç Tüketimi\n(Test Sırasında)",
+        "score_temp":               "Ort. Sıcaklık\n(Test Sırasında)",
+        "score_dlperf_cnn":          "DLPerf (CNN)",
+        "score_dlperf_transformer":  "DLPerf (Transformer)",
         "unit_img_s":               "görüntü/sn",
         "unit_samples_s":           "örnek/sn",
         "unit_tflops":              "TFLOPS",
@@ -317,9 +318,10 @@ _STRINGS: dict[str, dict[str, str]] = {
         "score_llmfit_moe":         "Largest MoE LLM",
         "score_max_train_tput":     "Max Training Throughput",
         "score_max_infer_tput":     "Max Inference Throughput",
-        "score_power":              "Avg Power Draw",
-        "score_temp":               "Avg Temperature",
-        "score_dlperf":             "DLPerf Score",
+        "score_power":              "Avg Power Draw\n(During Test)",
+        "score_temp":               "Avg Temperature\n(During Test)",
+        "score_dlperf_cnn":          "DLPerf (CNN)",
+        "score_dlperf_transformer":  "DLPerf (Transformer)",
         "unit_img_s":               "img/s",
         "unit_samples_s":           "samples/s",
         "unit_tflops":              "TFLOPS",
@@ -2175,62 +2177,7 @@ def chart_vram_limits(d: ComparisonData, out: Path):
 # ── Scorecard ─────────────────────────────────────────────────────────────────
 
 def chart_scorecard(d: ComparisonData, out: Path):
-    headline_metrics = [
-        ("train_vision_resnet50_fp16_img_per_sec", S("score_resnet_train"), S("unit_img_s"), "{:.0f}", None),
-        ("train_nlp_bert-base_bf16_samples_per_sec", S("score_bert_train"), S("unit_samples_s"), "{:.0f}", None),
-    ]
-
-    # Max Training Throughput — best across all training benchmarks
-    train_tput_keys = sorted([m for m in d.metric_ids()
-                              if (m.startswith("train_vision_") or m.startswith("train_nlp_"))
-                              and ("_img_per_sec" in m or "_samples_per_sec" in m)
-                              and "_bs" not in m and "_norm_" not in m and "_best_bs" not in m])
-    if train_tput_keys:
-        max_train_vals: list[float | None] = [None] * d.n_gpus
-        max_train_labels: list[str | None] = [None] * d.n_gpus
-        for mk in train_tput_keys:
-            tvals = d.get(mk)
-            for gi in range(d.n_gpus):
-                if tvals[gi] is not None and (max_train_vals[gi] is None or tvals[gi] > max_train_vals[gi]):
-                    max_train_vals[gi] = tvals[gi]
-                    # Build label from metric key
-                    parts = mk.replace("train_vision_", "").replace("train_nlp_", "")
-                    parts = parts.replace("_img_per_sec", "").replace("_samples_per_sec", "")
-                    max_train_labels[gi] = parts.replace("_", " ").upper()
-        if any(v is not None for v in max_train_vals):
-            headline_metrics.append(("_max_train_tput", S("score_max_train_tput"), S("unit_samples_s"), "{:.0f}", max_train_labels))
-
-    # Max Inference Throughput — best across all inference benchmarks
-    infer_tput_keys = sorted([m for m in d.metric_ids()
-                              if (m.startswith("infer_vision_") or m.startswith("infer_nlp_"))
-                              and ("_img_per_sec" in m or "_samples_per_sec" in m)
-                              and "_best_bs" not in m])
-    if infer_tput_keys:
-        max_infer_vals: list[float | None] = [None] * d.n_gpus
-        max_infer_labels: list[str | None] = [None] * d.n_gpus
-        for mk in infer_tput_keys:
-            tvals = d.get(mk)
-            for gi in range(d.n_gpus):
-                if tvals[gi] is not None and (max_infer_vals[gi] is None or tvals[gi] > max_infer_vals[gi]):
-                    max_infer_vals[gi] = tvals[gi]
-                    parts = mk.replace("infer_vision_", "").replace("infer_nlp_", "")
-                    parts = parts.replace("_img_per_sec", "").replace("_samples_per_sec", "")
-                    max_infer_labels[gi] = parts.replace("_", " ").upper()
-        if any(v is not None for v in max_infer_vals):
-            headline_metrics.append(("_max_infer_tput", S("score_max_infer_tput"), S("unit_samples_s"), "{:.0f}", max_infer_labels))
-
-    # Best LLM
-    tps_keys = sorted([m for m in d.metric_ids()
-                       if m.startswith("llm_") and m.endswith("_tokens_per_sec")
-                       and m != "llm_best_tokens_per_sec"])
-    if tps_keys:
-        best_key = max(tps_keys, key=lambda m: sum(v or 0 for v in d.get(m)))
-        best_descs = d.get("llm_best_model")
-        if any(v is not None for v in best_descs):
-            headline_metrics.append((best_key, S("score_llm_speed"), S("unit_tokens_s"), "{:.0f}", best_descs))
-        else:
-            name = best_key.replace("llm_", "").replace("_tokens_per_sec", "").replace("_", " ").title()
-            headline_metrics.append((best_key, f"{S('score_llm_label')} {name}", S("unit_tokens_s"), "{:.0f}", None))
+    headline_metrics = []
 
     # VRAM
     vram_params = d.get("vram_largest_loadable_params_b")
@@ -2316,28 +2263,24 @@ def chart_scorecard(d: ComparisonData, out: Path):
     if any(v is not None for v in hw_temp):
         headline_metrics.append(("hw_avg_temp_c", S("score_temp"), S("unit_celsius"), "{:.0f}", None))
 
-    # DLPerf
-    dlperf_vals = []
+    # DLPerf (CNN) — based on ResNet-50 FP32
+    dlperf_cnn_vals = []
     fp32_train = d.get("train_vision_resnet50_fp32_img_per_sec")
     for v in fp32_train:
-        dlperf_vals.append(round(v / 13.0, 1) if v else None)
+        dlperf_cnn_vals.append(round(v / 13.0, 1) if v else None)
+
+    # DLPerf (Transformer) — based on BERT-Base FP32
+    dlperf_transformer_vals = []
+    fp32_bert = d.get("train_nlp_bert-base_fp32_samples_per_sec")
+    for v in fp32_bert:
+        dlperf_transformer_vals.append(round(v / 13.0, 1) if v else None)
 
     gpu_names = d.gpu_names()
     n_gpus = d.n_gpus
 
     rows = []
     for mid, label, unit, fmt, detail in headline_metrics:
-        if mid.startswith("_max_"):
-            # Synthetic metric — vals are stored in detail, detail has labels
-            if mid == "_max_train_tput":
-                vals = max_train_vals
-            elif mid == "_max_infer_tput":
-                vals = max_infer_vals
-            else:
-                continue
-            if any(v is not None for v in vals):
-                rows.append((label, unit, fmt, vals, detail))
-        elif mid.startswith("_llmfit_"):
+        if mid.startswith("_llmfit_"):
             # Synthetic llmfit metrics — string values
             if mid == "_llmfit_best":
                 vals = llmfit_best_vals
@@ -2353,19 +2296,22 @@ def chart_scorecard(d: ComparisonData, out: Path):
             vals = d.get(mid)
             if any(v is not None for v in vals):
                 rows.append((label, unit, fmt, vals, detail))
-    if dlperf_vals and any(v is not None for v in dlperf_vals):
-        rows.append((S("score_dlperf"), "", "{:.1f}", dlperf_vals, None))
+    if dlperf_cnn_vals and any(v is not None for v in dlperf_cnn_vals):
+        rows.append((S("score_dlperf_cnn"), "", "{:.1f}", dlperf_cnn_vals, None))
+    if dlperf_transformer_vals and any(v is not None for v in dlperf_transformer_vals):
+        rows.append((S("score_dlperf_transformer"), "", "{:.1f}", dlperf_transformer_vals, None))
 
     if not rows:
         return
 
-    fig_w = max(BASE_FIG_W, 4.5 * n_gpus + 3)
-    fig = plt.figure(figsize=(fig_w, BASE_FIG_H))
-    fig.suptitle(S('score_title'), fontsize=22, fontweight="bold",
-                 color=TEXT_COLOR, y=0.97)
-
     n_rows = len(rows)
     n_cols = n_gpus + 1
+
+    fig_w = max(BASE_FIG_W, 4.5 * n_gpus + 3)
+    fig_h = max(BASE_FIG_H, 1.1 * n_rows + 2)
+    fig = plt.figure(figsize=(fig_w, fig_h))
+    fig.suptitle(S('score_title'), fontsize=22, fontweight="bold",
+                 color=TEXT_COLOR, y=0.97)
 
     for ri, (label, unit, fmt, vals, detail) in enumerate(rows):
         ax = fig.add_subplot(n_rows, n_cols, ri * n_cols + 1)
