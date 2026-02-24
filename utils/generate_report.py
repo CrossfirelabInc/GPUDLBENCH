@@ -251,6 +251,62 @@ def generate_markdown_report(data: dict[str, Any], session_id: str = "", session
         lines.append(f"- **Simultaneous 7B Models**: {vram.get('max_simultaneous_7b_models', 'N/A')}")
         lines.append("")
 
+    # ── llmfit — Best Loadable LLMs for this GPU ─────────────────────────
+    vram_gb = meta.get("vram_gb", 0)
+    llmfit_path = Path(__file__).resolve().parent.parent / "data" / "llmfit_vram_tiers.json"
+    if vram_gb > 0 and llmfit_path.exists():
+        try:
+            with llmfit_path.open() as _f:
+                llmfit_data = json.load(_f)
+            tiers = llmfit_data.get("vram_tiers", {})
+            tier_keys = sorted(tiers.keys(), key=lambda k: int(k))
+            matched_tier = None
+            for tk in tier_keys:
+                if int(tk) <= vram_gb:
+                    matched_tier = tk
+            if matched_tier is None and tier_keys:
+                matched_tier = tier_keys[0]
+            if matched_tier and matched_tier in tiers:
+                tier = tiers[matched_tier]
+                lines.append(f"## LLM Fit Analysis ({tier['label']} VRAM tier)\n")
+                lines.append(f"*Based on [llmfit](https://github.com/AlexsJones/llmfit) model database — "
+                             f"best models for {vram_gb:.0f} GB VRAM*\n")
+
+                # Top recommended models
+                top = tier.get("top_models", [])
+                if top:
+                    lines.append("### Best Recommended Models\n")
+                    lines.append("| Model | Params | Quant | VRAM | Fit | Use Case |")
+                    lines.append("|-------|--------|-------|------|-----|----------|")
+                    for m in top:
+                        lines.append(f"| {m['name']} | {m['params_b']}B | {m['best_quant']} | "
+                                     f"{m['vram_required_gb']}GB | {m['fit']} | {m['use_case']} |")
+                    lines.append("")
+
+                # Largest quantized models
+                lq = tier.get("largest_quantized", [])
+                if lq:
+                    lines.append("### Largest Loadable Models (aggressive quantization)\n")
+                    lines.append("| Model | Params | Quant | VRAM | Mode | Note |")
+                    lines.append("|-------|--------|-------|------|------|------|")
+                    for m in lq:
+                        vr = m.get("vram_required_gb", "?")
+                        vr_str = f"{vr}GB" if isinstance(vr, (int, float)) else str(vr)
+                        lines.append(f"| {m['name']} | {m['params_b']}B | {m['best_quant']} | "
+                                     f"{vr_str} | {m.get('run_mode', '')} | {m.get('note', '')} |")
+                    lines.append("")
+
+                ld = tier.get("largest_dense_model")
+                lm = tier.get("largest_moe_model")
+                if ld:
+                    lines.append(f"- **Largest Dense Model**: {ld}")
+                if lm:
+                    lines.append(f"- **Largest MoE Model**: {lm}")
+                if ld or lm:
+                    lines.append("")
+        except Exception:
+            pass
+
     # ── GEMM Compute Stress ───────────────────────────────────────────────
     gemm = data.get("gemm_stress")
     if gemm:

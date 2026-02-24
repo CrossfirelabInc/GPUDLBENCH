@@ -196,6 +196,9 @@ _STRINGS: dict[str, dict[str, str]] = {
         "score_llm_label":          "LLM",
         "score_vram_model":         "Maks. Yüklenebilir Model",
         "score_vram_ctx":           "Maks. Bağlam Uzunluğu (3B)",
+        "score_llmfit_best":        "En İyi Yüklenebilir LLM",
+        "score_llmfit_largest":     "En Büyük Dense LLM",
+        "score_llmfit_moe":         "En Büyük MoE LLM",
         "score_max_train_tput":     "Maks. Eğitim Verimi",
         "score_max_infer_tput":     "Maks. Çıkarım Verimi",
         "score_power":              "Ort. Güç Tüketimi",
@@ -309,6 +312,9 @@ _STRINGS: dict[str, dict[str, str]] = {
         "score_llm_label":          "LLM",
         "score_vram_model":         "Max Loadable Model",
         "score_vram_ctx":           "Max Context Length (3B)",
+        "score_llmfit_best":        "Best Loadable LLM",
+        "score_llmfit_largest":     "Largest Dense LLM",
+        "score_llmfit_moe":         "Largest MoE LLM",
         "score_max_train_tput":     "Max Training Throughput",
         "score_max_infer_tput":     "Max Inference Throughput",
         "score_power":              "Avg Power Draw",
@@ -661,6 +667,7 @@ def _load_session(session_dir: Path) -> tuple[str, str, Metricdict]:
     date_str = session_id[:8]
 
     gpu_name = "GPU"
+    gpu_vram_gb = None
     for p in session_dir.glob("*.json"):
         if p.name in ("session_meta.json", "benchmark_summary.json"):
             continue
@@ -669,6 +676,8 @@ def _load_session(session_dir: Path) -> tuple[str, str, Metricdict]:
                 d = json.load(f)
             if "gpu" in d:
                 gpu_name = d["gpu"].replace(" ", "_").replace("/", "_")
+                if "vram_gb" in d:
+                    gpu_vram_gb = d["vram_gb"]
                 break
         except Exception:
             continue
@@ -681,6 +690,8 @@ def _load_session(session_dir: Path) -> tuple[str, str, Metricdict]:
     combined["gpu_name"] = gpu_name.replace("_", " ")
     combined["run_date"] = date_str
     combined["elapsed_sec"] = meta.get("elapsed_seconds")
+    if gpu_vram_gb is not None:
+        combined["gpu_vram_gb"] = gpu_vram_gb
 
     for filename, extractor in _EXTRACTORS.items():
         jpath = session_dir / filename
@@ -2232,6 +2243,71 @@ def chart_scorecard(d: ComparisonData, out: Path):
     if any(v is not None for v in vram_ctx):
         headline_metrics.append(("vram_max_context_length", S("score_vram_ctx"), S("unit_tokens"), "{:,.0f}", None))
 
+    # llmfit — Best Loadable LLM per VRAM tier
+    gpu_vram_vals = d.get("gpu_vram_gb")
+    llmfit_json_path = Path(__file__).resolve().parent.parent / "data" / "llmfit_vram_tiers.json"
+    if any(v is not None for v in gpu_vram_vals) and llmfit_json_path.exists():
+        try:
+            with llmfit_json_path.open() as _f:
+                llmfit_data = json.load(_f)
+            tiers = llmfit_data.get("vram_tiers", {})
+            tier_keys = sorted(tiers.keys(), key=lambda k: int(k))  # ["16","24","32","48"]
+
+            llmfit_best_vals: list[str | None] = [None] * d.n_gpus
+            llmfit_best_detail: list[str | None] = [None] * d.n_gpus
+            llmfit_largest_vals: list[str | None] = [None] * d.n_gpus
+            llmfit_largest_detail: list[str | None] = [None] * d.n_gpus
+            llmfit_moe_vals: list[str | None] = [None] * d.n_gpus
+            llmfit_moe_detail: list[str | None] = [None] * d.n_gpus
+
+            for gi in range(d.n_gpus):
+                vram = gpu_vram_vals[gi]
+                if vram is None:
+                    continue
+                # Find the best matching tier (largest tier <= GPU VRAM)
+                matched_tier = None
+                for tk in tier_keys:
+                    if int(tk) <= vram:
+                        matched_tier = tk
+                # Fall back to smallest tier if GPU is below all tiers
+                if matched_tier is None:
+                    matched_tier = tier_keys[0] if tier_keys else None
+                if matched_tier and matched_tier in tiers:
+                    tier = tiers[matched_tier]
+                    # Best recommended model (quality/speed/fit composite)
+                    top = tier.get("top_models", [])
+                    if top:
+                        best = top[0]
+                        llmfit_best_vals[gi] = best["name"]
+                        q = best.get("best_quant", "Q4_K_M")
+                        p = best.get("params_b", 0)
+                        fit = best.get("fit", "")
+                        llmfit_best_detail[gi] = f"{p}B {q} ({fit})"
+                    # Largest dense model (most aggressive quantization)
+                    largest = tier.get("largest_dense_model")
+                    if largest:
+                        llmfit_largest_vals[gi] = str(largest)
+                    # Largest quantized model detail (first entry in largest_quantized)
+                    lq = tier.get("largest_quantized", [])
+                    if lq:
+                        lq0 = lq[0]
+                        note = lq0.get("note", "")
+                        llmfit_largest_detail[gi] = note if note else None
+                    # Largest MoE model
+                    largest_moe = tier.get("largest_moe_model")
+                    if largest_moe:
+                        llmfit_moe_vals[gi] = str(largest_moe)
+
+            if any(v is not None for v in llmfit_best_vals):
+                headline_metrics.append(("_llmfit_best", S("score_llmfit_best"), "", "{}", llmfit_best_detail))
+            if any(v is not None for v in llmfit_largest_vals):
+                headline_metrics.append(("_llmfit_largest", S("score_llmfit_largest"), "", "{}", llmfit_largest_detail))
+            if any(v is not None for v in llmfit_moe_vals):
+                headline_metrics.append(("_llmfit_moe", S("score_llmfit_moe"), "", "{}", None))
+        except Exception:
+            pass  # Graceful fallback: skip llmfit rows if JSON is invalid
+
+
     # Power & temp
     hw_power = d.get("hw_avg_power_w")
     if any(v is not None for v in hw_power):
@@ -2257,6 +2333,18 @@ def chart_scorecard(d: ComparisonData, out: Path):
                 vals = max_train_vals
             elif mid == "_max_infer_tput":
                 vals = max_infer_vals
+            else:
+                continue
+            if any(v is not None for v in vals):
+                rows.append((label, unit, fmt, vals, detail))
+        elif mid.startswith("_llmfit_"):
+            # Synthetic llmfit metrics — string values
+            if mid == "_llmfit_best":
+                vals = llmfit_best_vals
+            elif mid == "_llmfit_largest":
+                vals = llmfit_largest_vals
+            elif mid == "_llmfit_moe":
+                vals = llmfit_moe_vals
             else:
                 continue
             if any(v is not None for v in vals):
