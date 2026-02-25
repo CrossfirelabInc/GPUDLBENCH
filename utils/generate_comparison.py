@@ -210,7 +210,7 @@ _STRINGS: dict[str, dict[str, str]] = {
         "score_llmfit_best":        "En İyi Yüklenebilir LLM",
         "score_llmfit_largest":     "En Büyük Dense LLM",
         "score_llmfit_moe":         "En Büyük MoE LLM",
-        "score_llmfit_disclaimer":  "* LLM önerileri teorik VRAM tahminlerine dayalıdır (llmfit veritabanı). Gerçek performans; quantization, bağlam uzunluğu ve sistem yapılandırmasına göre değişebilir.",
+        "score_llmfit_disclaimer":  "* LLM önerileri teorik VRAM tahminlerine dayalıdır (llmfit veritabanı). Gerçek performans; quantization, bağlam uzunluğu ve sistem yapılandırmasına göre değişebilir.\n* DLPerf = Geometrik ortalama(GPU / PRO 5000) × 100  —  CNN eğitim+çıkarım, Transformer eğitim+çıkarım ve LLM token/s metriklerinin bileşimi.",
         "score_max_train_tput":     "Maks. Eğitim Verimi",
         "score_max_infer_tput":     "Maks. Çıkarım Verimi",
         "score_power":              "Ort. Güç Tüketimi\n(Test Sırasında)",
@@ -340,7 +340,7 @@ _STRINGS: dict[str, dict[str, str]] = {
         "score_llmfit_best":        "Best Loadable LLM",
         "score_llmfit_largest":     "Largest Dense LLM",
         "score_llmfit_moe":         "Largest MoE LLM",
-        "score_llmfit_disclaimer":  "* LLM recommendations are theoretical VRAM estimates (llmfit database). Actual fit depends on quantization, context length, and system configuration.",
+        "score_llmfit_disclaimer":  "* LLM recommendations are theoretical VRAM estimates (llmfit database). Actual fit depends on quantization, context length, and system configuration.\n* DLPerf = GeoMean(GPU / PRO 5000) × 100  —  composite of CNN train+infer, Transformer train+infer, and LLM token/s metrics.",
         "score_max_train_tput":     "Max Training Throughput",
         "score_max_infer_tput":     "Max Inference Throughput",
         "score_power":              "Avg Power Draw\n(During Test)",
@@ -2176,6 +2176,14 @@ def chart_dual_gpu(d: ComparisonData, out: Path):
         ("bert_base",  "Transformer (BERT-Base)"),
         ("gpt2_large", "Transformer (GPT-2 Large)"),
     ]
+    # Method colors: distinct color per bar type (instead of per-GPU)
+    METHOD_COLORS = {
+        "single":          ACCENT_BLUE,
+        "ddp":             ACCENT_GREEN,
+        "fsdp":            ACCENT_PURPLE,
+        "tensor_parallel": ACCENT_ORANGE,
+    }
+
     training_method_specs = [
         ("single", "1gpu", S("multigpu_1gpu"),  0.7),
         ("ddp",    "2gpu", S("multigpu_ddp"),    1.0),
@@ -2254,19 +2262,19 @@ def chart_dual_gpu(d: ComparisonData, out: Path):
     if n_panels == 1:
         axes = [axes]
 
-    t = fig.suptitle(S("multigpu_title"), fontsize=24, fontweight="bold",
-                     color=TEXT_COLOR, y=0.98)
+    t = fig.suptitle(S("multigpu_title"), fontsize=22, fontweight="bold",
+                     color=TEXT_COLOR, y=0.99)
     t.set_path_effects([
         path_effects.withStroke(linewidth=4, foreground=BG_COLOR, alpha=0.5),
         path_effects.Normal(),
     ])
-    st = fig.text(0.5, 0.955, S("multigpu_subtitle"), ha="center",
-                  fontsize=14, color=SUBTEXT_COLOR)
+    st = fig.text(0.5, 0.965, S("multigpu_subtitle"), ha="center",
+                  fontsize=12, color=SUBTEXT_COLOR)
     st.set_path_effects([
         path_effects.withStroke(linewidth=2, foreground=BG_COLOR, alpha=0.3),
     ])
-    fig.text(0.97, 0.965, S("higher_better"), ha="right", va="top",
-             fontsize=11, color=ACCENT_GREEN, alpha=0.9)
+    fig.text(0.97, 0.975, S("higher_better"), ha="right", va="top",
+             fontsize=10, color=ACCENT_GREEN, alpha=0.9)
     _watermark(fig)
 
     vfs = _val_fontsize(n_active * max_methods)
@@ -2314,13 +2322,10 @@ def chart_dual_gpu(d: ComparisonData, out: Path):
             cat_rank.append({gl: rank for rank, (gl, _) in enumerate(scored)})
 
         for gi_local, gi_global, vals, effs in gpu_data:
-            bar_color = GPU_COLORS[gi_global % len(GPU_COLORS)]
-
-            # Invisible bar for legend
-            if pi == 0:
-                ax.barh([], [], color=bar_color, label=gpu_names[gi_local])
-
             for ci, (v, eff) in enumerate(zip(vals, effs)):
+                method_key = p_methods[ci][0]  # "single", "ddp", "fsdp", "tensor_parallel"
+                bar_color = METHOD_COLORS.get(method_key, GPU_COLORS[gi_global % len(GPU_COLORS)])
+
                 if v > 0:
                     rank = cat_rank[ci][gi_local]
                     offset = (rank - (n_active - 1) / 2) * bar_h
@@ -2354,18 +2359,22 @@ def chart_dual_gpu(d: ComparisonData, out: Path):
         ax.set_xlim(0, max_v * 1.35)
         ax.invert_yaxis()
 
-    # Add shared legend at bottom
+    # Add shared legend for methods (color = method type)
     handles, labels = [], []
-    for gi_local, gi_global in enumerate(active_indices):
-        bar_color = GPU_COLORS[gi_global % len(GPU_COLORS)]
-        handles.append(Patch(facecolor=bar_color, label=gpu_names[gi_local]))
-        labels.append(gpu_names[gi_local])
+    seen_methods: set[str] = set()
+    for _, _, p_methods_iter, _ in panels:
+        for method_key, _, method_label, _ in p_methods_iter:
+            if method_key not in seen_methods:
+                seen_methods.add(method_key)
+                mc = METHOD_COLORS.get(method_key, ACCENT_BLUE)
+                handles.append(Patch(facecolor=mc, label=method_label))
+                labels.append(method_label)
     if handles:
-        fig.legend(handles, labels, loc="lower center", ncol=min(len(handles), 4),
-                   fontsize=12, facecolor=CARD_COLOR, edgecolor=GRID_COLOR,
+        fig.legend(handles, labels, loc="lower center", ncol=min(len(handles), 6),
+                   fontsize=11, facecolor=CARD_COLOR, edgecolor=GRID_COLOR,
                    bbox_to_anchor=(0.5, 0.01))
 
-    fig.tight_layout(rect=[0, 0.05, 1, 0.90])
+    fig.tight_layout(rect=[0, 0.05, 1, 0.93])
     _save(fig, out / "cmp_dual_gpu.png")
 
 
@@ -2566,10 +2575,17 @@ def chart_scorecard(d: ComparisonData, out: Path):
                         lq0 = lq[0]
                         note = lq0.get("note", "")
                         llmfit_largest_detail[gi] = note if note else None
-                    # Largest MoE model
+                    # Largest MoE model — split long name into 3 lines
                     largest_moe = tier.get("largest_moe_model")
                     if largest_moe:
-                        llmfit_moe_vals[gi] = str(largest_moe)
+                        moe_str = str(largest_moe)
+                        # "Name (XB MoE, ~YB active Q_)" → "Name\nXB MoE\n~YB active Q_"
+                        if " (" in moe_str and ", " in moe_str:
+                            head, rest = moe_str.split(" (", 1)
+                            rest = rest.rstrip(")")
+                            parts = rest.split(", ", 1)
+                            moe_str = head + "\n" + parts[0] + "\n" + parts[1]
+                        llmfit_moe_vals[gi] = moe_str
 
             if any(v is not None for v in llmfit_best_vals):
                 headline_metrics.append(("_llmfit_best", S("score_llmfit_best"), "", "{}", llmfit_best_detail))
