@@ -191,8 +191,8 @@ _STRINGS: dict[str, dict[str, str]] = {
         "fund_fft":                 "FFT FP32\n(GFLOPS)",
         # — Detection
         "detect_title":             "Nesne Algılama Eğitimi",
-        "detect_subtitle":          "Faster R-CNN / Mask R-CNN",
-        "detect_ylabel":            "Görüntü / sn",
+        "detect_subtitle":          "Faster R-CNN / Mask R-CNN — PRO 5000 = 1.0x",
+        "detect_ylabel":            "Göreceli Performans",
         # — Same Batch Size comparison
         "batch_norm_suffix":        "(Aynı Batch Boyutu)",
         "batch_norm_ylabel":        "Örnek / sn",
@@ -256,7 +256,7 @@ _STRINGS: dict[str, dict[str, str]] = {
         "vram_cat_actual_gb":       "VRAM Kullanımı\n(GB)",
         "vram_cat_context":         "Maks. Bağlam\n(K token)",
         # — CNN vs Transformer
-        "cnn_vs_tf_title":          "CNN & Transformer — Ortalama Performans",
+        "cnn_vs_tf_title":          "CNN & Transformer — Ortalama Göreceli Performans",
         "cnn_vs_tf_subtitle":       "Geometrik ortalama (PRO 5000 Blackwell = 1.0x)",
         "cnn_vs_tf_ylabel":         "Normalize Skor",
         "cnn_vs_tf_cnn":            "CNN Ortalama",
@@ -321,8 +321,8 @@ _STRINGS: dict[str, dict[str, str]] = {
         "fund_fft":                 "FFT FP32\n(GFLOPS)",
         # — Detection
         "detect_title":             "Object Detection Training",
-        "detect_subtitle":          "Faster R-CNN / Mask R-CNN",
-        "detect_ylabel":            "Images / sec",
+        "detect_subtitle":          "Faster R-CNN / Mask R-CNN \u2014 PRO 5000 = 1.0x",
+        "detect_ylabel":            "Relative Performance",
         # — Same Batch Size comparison
         "batch_norm_suffix":        "(Same Batch Size)",
         "batch_norm_ylabel":        "Samples / sec",
@@ -346,7 +346,7 @@ _STRINGS: dict[str, dict[str, str]] = {
         "score_power":              "Avg Power Draw\n(During Test)",
         "score_temp":               "Avg Temperature\n(During Test)",
         "score_dlperf":              "DLPerf Score\n(PRO 5000 = 100)",
-        "score_loadable_yes":       "\u2705 Fits in VRAM",
+        "score_loadable_yes":       "\u2714 Fits in VRAM",
         "score_loadable_partial":   "\u26a0\ufe0f Partially loaded",
         "score_loadable_no":        "\u274c Not loaded",
         "unit_img_s":               "img/s",
@@ -386,7 +386,7 @@ _STRINGS: dict[str, dict[str, str]] = {
         "vram_cat_actual_gb":       "VRAM Used\n(GB)",
         "vram_cat_context":         "Max Context\n(K tokens)",
         # — CNN vs Transformer
-        "cnn_vs_tf_title":          "CNN & Transformer — Average Performance",
+        "cnn_vs_tf_title":          "CNN & Transformer — Average Relative Performance",
         "cnn_vs_tf_subtitle":       "Geometric mean (PRO 5000 Blackwell = 1.0x)",
         "cnn_vs_tf_ylabel":         "Normalized Score",
         "cnn_vs_tf_cnn":            "CNN Average",
@@ -906,7 +906,7 @@ class ComparisonData:
             if with_vram:
                 vram = self._metrics.get("gpu_vram_gb", {}).get(cid)
                 if vram is not None:
-                    name += f" ({vram:.0f}GB)"
+                    name += f" ({math.ceil(vram)}GB)"
             names.append(name)
         return names
 
@@ -921,9 +921,11 @@ class ComparisonData:
                 if name.startswith(prefix):
                     name = name[len(prefix):]
                     break
+            # Shorten architecture suffixes to keep bar labels compact
+            name = name.replace(" Ampere", "").replace(" Blackwell", "")
             vram = self._metrics.get("gpu_vram_gb", {}).get(cid)
             if vram is not None:
-                name += f" ({vram:.0f}GB)"
+                name += f" ({math.ceil(vram)}GB)"
             names.append(name)
         return names
 
@@ -1078,12 +1080,18 @@ def _horizontal_grouped_bar(ax, categories: list[str], gpu_names: list[str],
                             values_per_gpu: list[list[float]], xlabel: str,
                             subtitle: str,
                             fmt: str = "{:.1f}",
-                            annotations_per_gpu: list[list[str]] | None = None):
+                            annotations_per_gpu: list[list[str]] | None = None,
+                            compact: bool = False):
     """Draw horizontal grouped bar chart with gradient fill.
 
     *annotations_per_gpu*, if provided, is a list (one per GPU) of lists
     (one per category) holding short strings (e.g. "BS=64") appended to
     the value label on each bar.
+
+    *compact*: when True, blank GPU slots (None / 0) are collapsed so
+    that each category only uses as much vertical space as it has data.
+
+    Bars within each category are sorted highest-to-lowest (top to bottom).
     """
     n_groups = len(categories)
     n_gpus = len(gpu_names)
@@ -1102,8 +1110,16 @@ def _horizontal_grouped_bar(ax, categories: list[str], gpu_names: list[str],
         all_vals.extend(vals)
     max_v_pre = max(all_vals) if all_vals else 1
 
+    # Pre-compute per-category rank: for each category, sort GPU indices
+    # by value descending so the longest bar appears at the top.
+    cat_rank: list[dict[int, int]] = []     # cat_rank[ci][gi] = rank (0 = top)
+    for ci in range(n_groups):
+        scored = [(gi, values_per_gpu[gi][ci] if values_per_gpu[gi][ci] else 0)
+                  for gi in range(n_gpus)]
+        scored.sort(key=lambda x: -x[1])
+        cat_rank.append({gi: rank for rank, (gi, _) in enumerate(scored)})
+
     for gi, (gname, gvals) in enumerate(zip(gpu_names, values_per_gpu)):
-        offset = (gi - (n_gpus - 1) / 2) * bar_h
         color = GPU_COLORS[gi % len(GPU_COLORS)]
         vals = [v if v is not None else 0 for v in gvals]
         # Invisible bar for legend
@@ -1111,8 +1127,25 @@ def _horizontal_grouped_bar(ax, categories: list[str], gpu_names: list[str],
         ann = annotations_per_gpu[gi] if annotations_per_gpu else [None] * len(vals)
         for ci, v in enumerate(vals):
             if v > 0:
-                cy = y[ci] + offset
-                _gradient_barh(ax, cy, v, bar_h * 0.88, color, zorder=3)
+                if compact:
+                    # Only GPUs with data, sorted by value descending
+                    present = sorted(
+                        [(g, values_per_gpu[g][ci])
+                         for g in range(n_gpus)
+                         if (values_per_gpu[g][ci] or 0) > 0],
+                        key=lambda x: -x[1])
+                    n_active = len(present)
+                    rank = [g for g, _ in present].index(gi)
+                    c_bar_h = total_height / max(n_active, 1)
+                    offset = (rank - (n_active - 1) / 2) * c_bar_h
+                    cy = y[ci] + offset
+                    draw_h = c_bar_h * 0.88
+                else:
+                    rank = cat_rank[ci][gi]
+                    offset = (rank - (n_gpus - 1) / 2) * bar_h
+                    cy = y[ci] + offset
+                    draw_h = bar_h * 0.88
+                _gradient_barh(ax, cy, v, draw_h, color, zorder=3)
                 label = fmt.format(v)
                 a = ann[ci] if ci < len(ann) else None
                 if a:
@@ -1459,7 +1492,7 @@ def chart_llm(d: ComparisonData, out: Path):
 
     _horizontal_grouped_bar(ax, cats, d.gpu_names_short(), values_per_gpu,
                             S("llm_xlabel_tps"), S("llm_speed"),
-                            fmt="{:.1f}")
+                            fmt="{:.1f}", compact=True)
 
     fig.tight_layout(rect=[0, 0.02, 1, 0.92])
     _save(fig, out / "cmp_llm.png")
@@ -1546,7 +1579,8 @@ def chart_fundamentals(d: ComparisonData, out: Path):
 
 
 def chart_detection(d: ComparisonData, out: Path):
-    cats, keys, bs_keys = [], [], []
+    """Detection training chart — relative performance, PRO 5000 = 1.0x."""
+    cats, keys = [], []
     _model_labels = {
         "faster_rcnn_resnet50": "CNN (Faster R-CNN)",
         "mask_rcnn_resnet50": "CNN (Mask R-CNN)",
@@ -1557,16 +1591,38 @@ def chart_detection(d: ComparisonData, out: Path):
             if any(v is not None for v in d.get(mid)):
                 cats.append(f"{_model_labels[model]}\n{prec.upper()}")
                 keys.append(mid)
-                bs_keys.append(f"detect_{model}_{prec}_best_bs")
     if not cats:
         return
-    vals = [[d.get(m)[gi] for m in keys] for gi in range(d.n_gpus)]
-    anns = _build_bs_annotations(d, bs_keys)
+
+    # Find PRO 5000 baseline GPU index
+    base_gi: int | None = None
+    for _gi, _gn in enumerate(d.gpu_names(with_vram=False)):
+        if "PRO 5000" in _gn:
+            base_gi = _gi
+            break
+
+    # Normalise to PRO 5000 = 1.0x
+    raw = [[d.get(m)[gi] for m in keys] for gi in range(d.n_gpus)]
+    vals: list[list[float | None]] = []
+    for gi in range(d.n_gpus):
+        row: list[float | None] = []
+        for ci in range(len(keys)):
+            v = raw[gi][ci]
+            if v is None or v == 0:
+                row.append(None)
+                continue
+            bv = raw[base_gi][ci] if base_gi is not None else None
+            if bv and bv > 0:
+                row.append(v / bv)
+            else:
+                row.append(None)
+        vals.append(row)
+
     fig, ax = _standard_fig(S("detect_title"), S("higher_better"),
                             ACCENT_GREEN, d.n_gpus, len(cats),
                             height_ratio=max(1.0, len(cats) * 0.18))
     _horizontal_grouped_bar(ax, cats, d.gpu_names_short(), vals, S("detect_ylabel"),
-                 S("detect_subtitle"), fmt="{:.1f}", annotations_per_gpu=anns)
+                 S("detect_subtitle"), fmt="{:.2f}x")
     fig.tight_layout(rect=[0, 0.03, 1, 0.92])
     _save(fig, out / "cmp_detection.png")
 
@@ -2057,13 +2113,22 @@ def chart_cnn_vs_transformer(d: ComparisonData, out: Path):
         all_v.extend(gvals)
     max_v_pre = max(all_v) if all_v else 2
 
+    # Per-category rank: sort GPU bars highest-to-lowest within each group
+    cat_rank: list[dict[int, int]] = []
+    for ci in range(len(cats)):
+        scored = [(gi, vals_per_gpu[gi][ci] if vals_per_gpu[gi][ci] else 0)
+                  for gi in range(n_gpus)]
+        scored.sort(key=lambda x: -x[1])
+        cat_rank.append({gi: rank for rank, (gi, _) in enumerate(scored)})
+
     for gi, gname in enumerate(gpu_names):
-        offset = (gi - (n_gpus - 1) / 2) * bar_h
         color = GPU_COLORS[gi % len(GPU_COLORS)]
         gvals = vals_per_gpu[gi]
         ax.barh([], [], color=color, label=gname)  # legend
         for ci, v in enumerate(gvals):
             if v > 0:
+                rank = cat_rank[ci][gi]
+                offset = (rank - (n_gpus - 1) / 2) * bar_h
                 cy = y[ci] + offset
                 _gradient_barh(ax, cy, v, bar_h * 0.88, color, zorder=3)
                 txt = ax.text(v + max_v_pre * 0.01, cy,
@@ -2184,7 +2249,7 @@ def chart_dual_gpu(d: ComparisonData, out: Path):
     # Use vertical stacking (Nx1) instead of horizontal (1xN) for readability
     fig_w = max(BASE_FIG_W, 5 * n_active + 4)
     panel_h = max(2.5, 0.9 * n_active * max_methods + 1.2)
-    fig_h = panel_h * n_panels + 2.5
+    fig_h = panel_h * n_panels + 4.5
     fig, axes = plt.subplots(n_panels, 1, figsize=(fig_w, fig_h))
     if n_panels == 1:
         axes = [axes]
@@ -2195,12 +2260,12 @@ def chart_dual_gpu(d: ComparisonData, out: Path):
         path_effects.withStroke(linewidth=4, foreground=BG_COLOR, alpha=0.5),
         path_effects.Normal(),
     ])
-    st = fig.text(0.5, 0.96, S("multigpu_subtitle"), ha="center",
+    st = fig.text(0.5, 0.955, S("multigpu_subtitle"), ha="center",
                   fontsize=14, color=SUBTEXT_COLOR)
     st.set_path_effects([
         path_effects.withStroke(linewidth=2, foreground=BG_COLOR, alpha=0.3),
     ])
-    fig.text(0.97, 0.97, S("higher_better"), ha="right", va="top",
+    fig.text(0.97, 0.965, S("higher_better"), ha="right", va="top",
              fontsize=11, color=ACCENT_GREEN, alpha=0.9)
     _watermark(fig)
 
@@ -2218,8 +2283,10 @@ def chart_dual_gpu(d: ComparisonData, out: Path):
         bar_h = total_height / n_active
 
         all_vals: list[float] = []
+        # First pass: collect all values to compute max and per-category ranks
+        gpu_vals_per_cat: list[list[tuple[int, float]]] = [[] for _ in range(n_methods)]
+        gpu_data: list[tuple[int, int, list[float], list[str]]] = []
         for gi_local, gi_global in enumerate(active_indices):
-            offset = (gi_local - (n_active - 1) / 2) * bar_h
             base_rgb = mcolors.to_rgb(GPU_COLORS[gi_global % len(GPU_COLORS)])
 
             vals: list[float] = []
@@ -2236,6 +2303,17 @@ def chart_dual_gpu(d: ComparisonData, out: Path):
                     effs.append("")
 
             all_vals.extend(vals)
+            gpu_data.append((gi_local, gi_global, vals, effs))
+            for ci, v in enumerate(vals):
+                gpu_vals_per_cat[ci].append((gi_local, v))
+
+        # Per-category rank: sort by value descending
+        cat_rank: list[dict[int, int]] = []
+        for ci in range(n_methods):
+            scored = sorted(gpu_vals_per_cat[ci], key=lambda x: -x[1])
+            cat_rank.append({gl: rank for rank, (gl, _) in enumerate(scored)})
+
+        for gi_local, gi_global, vals, effs in gpu_data:
             bar_color = GPU_COLORS[gi_global % len(GPU_COLORS)]
 
             # Invisible bar for legend
@@ -2244,6 +2322,8 @@ def chart_dual_gpu(d: ComparisonData, out: Path):
 
             for ci, (v, eff) in enumerate(zip(vals, effs)):
                 if v > 0:
+                    rank = cat_rank[ci][gi_local]
+                    offset = (rank - (n_active - 1) / 2) * bar_h
                     cy = y[ci] + offset
                     _gradient_barh(ax, cy, v, bar_h * 0.88, bar_color, zorder=3)
                     ann = f"{v:.0f}"
@@ -2285,7 +2365,7 @@ def chart_dual_gpu(d: ComparisonData, out: Path):
                    fontsize=12, facecolor=CARD_COLOR, edgecolor=GRID_COLOR,
                    bbox_to_anchor=(0.5, 0.01))
 
-    fig.tight_layout(rect=[0, 0.05, 1, 0.94])
+    fig.tight_layout(rect=[0, 0.05, 1, 0.90])
     _save(fig, out / "cmp_dual_gpu.png")
 
 
@@ -2494,7 +2574,7 @@ def chart_scorecard(d: ComparisonData, out: Path):
             if any(v is not None for v in llmfit_best_vals):
                 headline_metrics.append(("_llmfit_best", S("score_llmfit_best"), "", "{}", llmfit_best_detail))
             if any(v is not None for v in llmfit_largest_vals):
-                headline_metrics.append(("_llmfit_largest", S("score_llmfit_largest"), "", "{}", llmfit_largest_detail))
+                headline_metrics.append(("_llmfit_largest", S("score_llmfit_largest"), "", "{}", None))
             if any(v is not None for v in llmfit_moe_vals):
                 headline_metrics.append(("_llmfit_moe", S("score_llmfit_moe"), "", "{}", None))
         except Exception:
@@ -2656,7 +2736,8 @@ def chart_scorecard(d: ComparisonData, out: Path):
              color=SUBTEXT_COLOR, style="italic", alpha=0.8)
 
     _watermark(fig)
-    fig.tight_layout(rect=[0, 0.04, 1, 0.92])
+    # GridSpec axes aren't compatible with tight_layout; skip it and
+    # rely on bbox_inches="tight" in _save() instead.
     _save(fig, out / "cmp_scorecard.png")
 
 
