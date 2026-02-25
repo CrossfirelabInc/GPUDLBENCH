@@ -12,6 +12,7 @@ import argparse
 import csv
 import json
 import logging
+import textwrap
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -51,8 +52,6 @@ def load_results(results_dir: Path = DEFAULT_RESULTS_DIR) -> dict[str, Any]:
         "llm": _load_json("llm_tokens_per_sec.json", results_dir),
         "vram_limits": _load_json("vram_limits.json", results_dir),
         "training_detection": _load_json("training_detection.json", results_dir),
-        "gemm_stress": _load_json("gemm_stress.json", results_dir),
-        "gpu_fundamentals": _load_json("gpu_fundamentals.json", results_dir),
         "multi_gpu_scaling": _load_json("multi_gpu_scaling.json", results_dir),
     }
 
@@ -307,85 +306,6 @@ def generate_markdown_report(data: dict[str, Any], session_id: str = "", session
         except Exception:
             pass
 
-    # ── GEMM Compute Stress ───────────────────────────────────────────────
-    gemm = data.get("gemm_stress")
-    if gemm:
-        lines.append("## GEMM Compute Stress\n")
-        peak = gemm.get("peak_tflops", {})
-        if peak:
-            lines.append("### Peak TFLOPS by Precision\n")
-            lines.append("| Precision | Peak TFLOPS |")
-            lines.append("|-----------|-------------|")
-            for prec, val in peak.items():
-                lines.append(f"| {prec} | {val:.2f} |")
-            lines.append("")
-        # Per-size detail table
-        gemm_rows = gemm.get("results", [])
-        if gemm_rows:
-            lines.append("### Per-Size Results\n")
-            lines.append("| Precision | Size | TFLOPS | Time (ms) |")
-            lines.append("|-----------|------|--------|-----------|")
-            for r in gemm_rows:
-                lines.append(f"| {r.get('precision','')} | {r['matrix_size']}×{r['matrix_size']} | {r['tflops']:.2f} | {r['time_ms']:.2f} |")
-            lines.append("")
-
-    # ── GPU Fundamentals ──────────────────────────────────────────────────
-    fund = data.get("gpu_fundamentals")
-    if fund:
-        lines.append("## GPU Fundamentals\n")
-        fund_rows = fund.get("results", [])
-
-        # Memory Bandwidth
-        bw = [r for r in fund_rows if r.get("category") == "memory_bandwidth"]
-        if bw:
-            peak_bw = max(r["value"] for r in bw)
-            lines.append(f"- **Peak Memory Bandwidth (D2D)**: {peak_bw:.1f} GB/s")
-
-        # PCIe
-        h2d = [r for r in fund_rows if r.get("category") == "pcie" and "h2d" in r.get("test", "")]
-        d2h = [r for r in fund_rows if r.get("category") == "pcie" and "d2h" in r.get("test", "")]
-        if h2d:
-            lines.append(f"- **PCIe H2D Bandwidth**: {max(r['value'] for r in h2d):.2f} GB/s")
-        if d2h:
-            lines.append(f"- **PCIe D2H Bandwidth**: {max(r['value'] for r in d2h):.2f} GB/s")
-
-        # Kernel launch latency
-        kl = [r for r in fund_rows if r.get("category") == "kernel_launch"]
-        if kl:
-            lines.append(f"- **Kernel Launch Latency**: {min(r['value'] for r in kl):.2f} μs")
-
-        # Attention SDPA
-        attn = [r for r in fund_rows if r.get("category") == "attention"]
-        if attn:
-            lines.append("")
-            lines.append("### Attention (SDPA) Throughput\n")
-            lines.append("| Config | Dtype | TFLOPS |")
-            lines.append("|--------|-------|--------|")
-            for r in attn:
-                tflops = r["value"] / 1000
-                lines.append(f"| {r['notes']} | {r['dtype']} | {tflops:.1f} |")
-
-        # Reduction
-        red = [r for r in fund_rows if r.get("category") == "reduction"]
-        if red:
-            peak_red = max(r["value"] for r in red)
-            lines.append(f"\n- **Peak Reduction Bandwidth**: {peak_red:.1f} GB/s")
-
-        # FFT
-        fft32 = [r for r in fund_rows if r.get("category") == "fft" and r.get("dtype") == "FP32"]
-        fft64 = [r for r in fund_rows if r.get("category") == "fft" and r.get("dtype") == "FP64"]
-        if fft32:
-            lines.append(f"- **Peak FFT FP32**: {max(r['value'] for r in fft32):.1f} GFLOPS")
-        if fft64:
-            lines.append(f"- **Peak FFT FP64**: {max(r['value'] for r in fft64):.1f} GFLOPS")
-
-        # SpMM
-        spmm = [r for r in fund_rows if r.get("category") == "spmm"]
-        if spmm:
-            lines.append(f"- **Peak SpMM**: {max(r['value'] for r in spmm):.1f} GFLOPS")
-
-        lines.append("")
-
     # ── Multi-GPU Scaling ─────────────────────────────────────────────────
     mgpu = data.get("multi_gpu_scaling")
     if mgpu:
@@ -425,18 +345,56 @@ def generate_markdown_report(data: dict[str, Any], session_id: str = "", session
     if any_hw:
         lines.append("")
 
-    # ── DLPerf Estimate ──────────────────────────────────────────────────
+    # ── DLPerf Composite Score ────────────────────────────────────────────
+    # Geometric mean of CNN train+infer, Transformer train+infer, LLM token/s
+    # Presented as a raw composite (not normalised — normalisation happens in
+    # generate_comparison.py relative to a baseline GPU).
+    _dlperf_vals: list[float] = []
     if tv:
-        fp32_hits = [r for r in tv["results"]
-                     if r["model"] == "resnet50" and r["precision"] == "FP32" and r["status"] == "success"]
-        if fp32_hits:
-            best = max(fp32_hits, key=lambda x: x.get("throughput_img_per_sec", 0) or 0)
-            tp = best["throughput_img_per_sec"]
-            dlperf = tp / 13.0
-            lines.append("## DLPerf Score (Estimated)\n")
-            lines.append(f"Based on ResNet-50 FP32 training throughput ({tp:.1f} img/s):\n")
-            lines.append(f"**Estimated DLPerf**: {dlperf:.1f}\n")
-            lines.append("> DLPerf formula: `ResNet-50 FP32 throughput / 13.0` (approximate Vast.ai methodology)")
+        for model in ["resnet50", "resnet101"]:
+            for prec in ["FP16", "BF16"]:
+                hits = [r for r in tv["results"]
+                        if r["model"] == model and r["precision"] == prec and r["status"] == "success"]
+                if hits:
+                    _dlperf_vals.append(max(r.get("throughput_img_per_sec", 0) or 0 for r in hits))
+    if iv:
+        for model in ["resnet50", "resnet101"]:
+            for prec in ["FP16", "BF16"]:
+                hits = [r for r in iv["results"]
+                        if r["model"] == model and r["precision"] == prec and r["status"] == "success"]
+                if hits:
+                    _dlperf_vals.append(max(r.get("throughput_img_per_sec", 0) or 0 for r in hits))
+    if tn:
+        for model in ["bert-base", "bert-large"]:
+            for prec in ["FP16", "BF16"]:
+                hits = [r for r in tn["results"]
+                        if r["model"] == model and r["precision"] == prec and r["status"] == "success"]
+                if hits:
+                    _dlperf_vals.append(max(r.get("throughput_samples_per_sec", 0) or 0 for r in hits))
+    if inlp:
+        for model in ["bert-base", "bert-large"]:
+            for prec in ["FP16", "BF16"]:
+                hits = [r for r in inlp["results"]
+                        if r["model"] == model and r["precision"] == prec and r["status"] == "success"]
+                if hits:
+                    _dlperf_vals.append(max(r.get("throughput_samples_per_sec", 0) or 0 for r in hits))
+    llm = data.get("llm")
+    if llm:
+        best_llm_tps = max((r.get("tokens_per_second", 0) or 0 for r in llm["results"]), default=0)
+        if best_llm_tps > 0:
+            _dlperf_vals.append(best_llm_tps)
+
+    if _dlperf_vals:
+        from math import exp, log
+        _log_sum = sum(log(v) for v in _dlperf_vals if v > 0)
+        _count = sum(1 for v in _dlperf_vals if v > 0)
+        if _count > 0:
+            geomean = exp(_log_sum / _count)
+            lines.append("## DLPerf Composite Score\n")
+            lines.append(f"Geometric mean of {_count} metrics (CNN + Transformer train/infer, LLM token/s):\n")
+            lines.append(f"**DLPerf Composite**: {geomean:.1f}\n")
+            lines.append("> Cross-GPU comparison normalises this to a baseline GPU = 100 "
+                         "(see generate_comparison.py for details).")
             lines.append("")
 
     lines.append("---\n")
@@ -508,21 +466,6 @@ def generate_csv_summary(data: dict[str, Any]) -> list[dict[str, str]]:
                 _add("Inference NLP", f"{r['model']} {r['precision']} BS={r['batch_size']}",
                      f"{r['throughput_samples_per_sec']:.1f} samples/s")
 
-    # GEMM Stress
-    gemm = data.get("gemm_stress")
-    if gemm:
-        peak = gemm.get("peak_tflops", {})
-        for prec, val in peak.items():
-            _add("GEMM Stress", f"{prec} Peak", f"{val:.2f} TFLOPS")
-
-    # GPU Fundamentals
-    fund = data.get("gpu_fundamentals")
-    if fund:
-        for r in fund.get("results", []):
-            cat = r.get("category", "")
-            _add("GPU Fundamentals", f"{cat} — {r.get('test', '')}",
-                 f"{r['value']:.2f} {r.get('unit', '')}")
-
     # LLM
     llm = data.get("llm")
     if llm:
@@ -553,9 +496,24 @@ def generate_csv_summary(data: dict[str, Any]) -> list[dict[str, str]]:
 # ═════════════════════════════════════════════════════════════════════════════
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Generate Benchmark Report")
+    parser = argparse.ArgumentParser(
+        description="Generate per-session benchmark summary report "
+                    "(Markdown, CSV, JSON) from raw result files.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=textwrap.dedent("""\
+        outputs (written to --results-dir)
+          benchmark_summary.md    Human-readable Markdown report
+          benchmark_summary.csv   Machine-readable CSV summary
+          benchmark_summary.json  Full JSON blob with all metrics
+
+        examples
+          python utils/generate_report.py
+          python utils/generate_report.py --results-dir results/20260224_011628_4e92d612
+        """)
+    )
     parser.add_argument("--results-dir", type=str, default=str(DEFAULT_RESULTS_DIR),
-                        help="Directory containing JSON result files")
+                        help="Session directory containing JSON result files "
+                             "(default: results/)")
     args = parser.parse_args()
 
     results_dir = Path(args.results_dir)

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Benchmark 10 — Multi-GPU Training Scaling
+Benchmark 8 — Multi-GPU Training Scaling
 
 Measures how much buying a second identical GPU speeds up training.
 
@@ -483,7 +483,7 @@ def main() -> None:
 
     sep = "=" * 72
     print(sep)
-    print("Benchmark 10 — Multi-GPU Training Scaling")
+    print("Benchmark 8 — Multi-GPU Training Scaling")
     print(f"Methods: 1-GPU baseline  |  DDP  |  FSDP ZeRO-2")
     print(f"Grad accumulation steps: {MULTIGPU_GRAD_ACCUM_STEPS}")
     print(sep)

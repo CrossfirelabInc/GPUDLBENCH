@@ -8,14 +8,11 @@ from pathlib import Path
 RANDOM_SEED: int = 42
 # ── Demo Mode ───────────────────────────────────────────────────────────────────────
 # When --demo is used: only minimal batch size, fewer iterations, skip
-# heavy benchmarks (6, 9, 10).  Useful for quick integration testing.
+# heavy benchmarks (6, 8).  Useful for quick integration testing.
 DEMO_TRAIN_WARMUP: int = 3
 DEMO_TRAIN_ITERATIONS: int = 20
 DEMO_INFER_WARMUP: int = 5
 DEMO_INFER_ITERATIONS: int = 50
-DEMO_GEMM_SIZES: list[int] = [1024, 4096]
-DEMO_GEMM_WARMUP: int = 2
-DEMO_GEMM_REPEATS: int = 5
 DEMO_LLM_NUM_TOKENS: int = 128
 DEMO_DETECTION_WARMUP: int = 2
 DEMO_DETECTION_ITERATIONS: int = 15
@@ -35,9 +32,8 @@ HF_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 os.environ.setdefault("HF_HOME", str(HF_CACHE_DIR))
 
 # ── Precision modes ───────────────────────────────────────────────────────────
-# FP8 is excluded here — PyTorch AMP has no native FP8 autocast, so
-# training/inference benchmarks would just re-run FP16.  True FP8 is
-# benchmarked in GEMM stress (benchmark 7) via torch._scaled_mm.
+# FP8 is excluded — PyTorch AMP has no native FP8 autocast, so
+# training/inference benchmarks would just re-run FP16.
 TRAINING_PRECISIONS: list[str] = ["fp32", "fp16", "bf16"]
 INFERENCE_PRECISIONS: list[str] = ["fp32", "fp16", "bf16"]
 
@@ -125,32 +121,13 @@ VRAM_TEST_MODELS: list = [
 ]
 VRAM_CONTEXT_LENGTHS: list[int] = [1024, 2048, 4096, 8192, 16384, 32768, 65536, 131072]
 
-# ── Detection Training (Benchmark 8) ─────────────────────────────────────────
+# ── Detection Training (Benchmark 7) ─────────────────────────────────────────
 DETECTION_NUM_CLASSES: int = 91
 DETECTION_IMAGE_SIZE: int = 800
 DETECTION_WARMUP: int = 5
 DETECTION_ITERATIONS: int = 50
 
-# ── GEMM Compute Stress (Benchmark 7) ────────────────────────────────────────
-GEMM_SIZES: list[int] = [1024, 2048, 4096, 8192]
-GEMM_WARMUP: int = 5
-GEMM_REPEATS: int = 15
-
-# ── GPU Fundamentals (Benchmark 9) ───────────────────────────────────────────
-FUND_BW_SIZES: list[int] = [
-    16 * 1024 * 1024, 64 * 1024 * 1024, 256 * 1024 * 1024,
-    1024 * 1024 * 1024, 2 * 1024 * 1024 * 1024,
-]
-FUND_PCIE_SIZE: int = 256 * 1024 * 1024
-FUND_FFT_SIZES: list[int] = [1024, 4096, 16384, 65536, 262144]
-FUND_NBODY_N: int = 32768
-FUND_NBODY_STEPS: int = 50
-FUND_STENCIL_SIZE: int = 4096
-FUND_STENCIL_STEPS: int = 100
-FUND_WARMUP: int = 5
-FUND_REPEATS: int = 20
-
-# ── Multi-GPU Scaling (Benchmark 10) ─────────────────────────────────────────
+# ── Multi-GPU Scaling (Benchmark 8) ──────────────────────────────────────────
 MULTIGPU_VISION_BATCH_PER_GPU: int = 32
 MULTIGPU_NLP_BATCH_PER_GPU: int = 32
 MULTIGPU_LLM_BATCH_PER_GPU: int = 8

@@ -770,12 +770,31 @@ print(f"\\n  Done: {ok} ok, {fail} failed, {skip} skipped")
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def main():
-    parser = argparse.ArgumentParser(description="GPU DL Benchmark Suite — Clean Installer")
-    parser.add_argument("--skip-llama", action="store_true")
-    parser.add_argument("--skip-models", action="store_true")
-    parser.add_argument("--model-set", default="default", choices=["default", "popular"])
-    parser.add_argument("--hf-token", default=None)
-    parser.add_argument("--venv", default="venv")
+    parser = argparse.ArgumentParser(
+        description="GPU DL Benchmark Suite — Clean Installer",
+        epilog="""\
+Installs venv, PyTorch (matched to GPU arch), CUDA toolkit, llama.cpp,
+and downloads LLM test models. Re-running after a GPU/driver change is safe.
+
+Examples:
+  python install.py                     # full clean install
+  python install.py --skip-llama        # skip llama.cpp build
+  python install.py --skip-models       # skip model downloads (~50+ GB)
+  python install.py --model-set popular # smaller model set (~38 GB)
+  python install.py --hf-token hf_xxx   # pass HuggingFace token
+""",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument("--skip-llama", action="store_true",
+                        help="Skip llama.cpp clone/build")
+    parser.add_argument("--skip-models", action="store_true",
+                        help="Skip GGUF model downloads")
+    parser.add_argument("--model-set", default="default", choices=["default", "popular"],
+                        help="LLM model set: 'default' (~57GB) or 'popular' (~38GB)")
+    parser.add_argument("--hf-token", default=None,
+                        help="HuggingFace token for gated model access")
+    parser.add_argument("--venv", default="venv",
+                        help="Virtual environment directory (default: venv)")
     args = parser.parse_args()
 
     venv_dir = Path(args.venv).resolve()

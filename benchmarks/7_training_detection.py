@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Benchmark 8 — Object Detection Training (Faster R-CNN + Mask R-CNN)
+Benchmark 7 — Object Detection Training (Faster R-CNN + Mask R-CNN)
 
 Measures training throughput (images/second) for:
   • Faster R-CNN with ResNet-50 FPN  — 2-stage detection
@@ -237,7 +237,7 @@ def main() -> None:
         print("*** DEMO MODE — minimal batch size, reduced iterations ***\n")
 
     print("=" * 70)
-    print("Benchmark 8 — Object Detection Training")
+    print("Benchmark 7 — Object Detection Training")
     print("Models: Faster R-CNN (ResNet-50 FPN) + Mask R-CNN (ResNet-50 FPN)")
     print("=" * 70)
     print()
@@ -305,7 +305,7 @@ def main() -> None:
     )
 
     print("\n" + "=" * 70)
-    print("Benchmark 8 — Object Detection Training Complete!")
+    print("Benchmark 7 — Object Detection Training Complete!")
     print("=" * 70)
     print(f"\nResults saved to:\n  - {csv_path}\n  - {json_path}\n")
 

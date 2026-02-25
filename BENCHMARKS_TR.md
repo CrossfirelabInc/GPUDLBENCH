@@ -85,21 +85,7 @@ GPU belleğine (VRAM) sığan en büyük modeli ve en uzun bağlam uzunluğunu (
 
 ---
 
-## 7. GEMM Hesaplama Stresi (GEMM Compute Stress)
-
-**Ne yapıyor?**
-GPU'nun saf matematik hesaplama gücünü ölçüyor. Büyük matris çarpımları (GEMM = General Matrix Multiply) yaparak her hassasiyet türünde (FP64, FP32, FP16, BF16, FP8) zirve TFLOPS değerini buluyor.
-
-**Gerçek hayatta ne anlama geliyor?**
-- **Her yapay zeka modeli temelde matris çarpımıdır.** Bu test, GPU'nun teorik maksimum hesaplama kapasitesini gösterir.
-- FP32 TFLOPS = bilimsel simülasyon, mühendislik yazılımları için kritik.
-- BF16/FP16 TFLOPS = yapay zeka eğitim/çıkarım hızının temel belirleyicisi.
-- FP8 = yeni nesil GPU'larda 2x daha hızlı çıkarım potansiyeli.
-- Bu test, GPU'nun "kas gücünü" ölçer — yazılım optimizasyonundan bağımsız, saf donanım performansı.
-
----
-
-## 8. Nesne Algılama Eğitimi (Object Detection) — Faster R-CNN / Mask R-CNN
+## 7. Nesne Algılama Eğitimi (Object Detection) — Faster R-CNN / Mask R-CNN
 
 **Ne yapıyor?**
 Fotoğraftaki nesneleri tespit eden ve konumlarını belirleyen modeller (Faster R-CNN, Mask R-CNN) eğitiliyor.
@@ -114,25 +100,7 @@ Fotoğraftaki nesneleri tespit eden ve konumlarını belirleyen modeller (Faster
 
 ---
 
-## 9. GPU Temelleri (GPU Fundamentals)
-
-**Ne yapıyor?**
-GPU'nun alt seviye donanım performansını ölçüyor:
-- **Bellek bant genişliği:** GPU belleğinden veri okuma/yazma hızı (GB/s)
-- **PCIe bant genişliği:** CPU ↔ GPU arası veri transfer hızı
-- **FFT:** Hızlı Fourier Dönüşümü performansı
-- **Kernel başlatma gecikmesi:** GPU'ya komut gönderme hızı
-- **SpMM:** Seyrek matris çarpımı
-
-**Gerçek hayatta ne anlama geliyor?**
-- **Bellek bant genişliği**, büyük modellerde "bottleneck" (darboğaz) oluşturur. Yüksek BW = daha hızlı model yükleme ve çıkarım.
-- **PCIe hızı**, CPU'dan GPU'ya veri aktarımını etkiler. Veri pipeline'ı yavaşsa, GPU boşa bekler.
-- **Kernel gecikmesi**, küçük işlemlerde (örneğin gerçek zamanlı inference) önemlidir — düşük gecikme = daha duyarlı sistem.
-- Bu testler, GPU'nun "temel sağlık kontrolü" gibidir. Kartın üretici spesifikasyonlarına ulaşıp ulaşmadığını gösterir.
-
----
-
-## 10. Çoklu GPU Ölçekleme (Multi-GPU Scaling)
+## 8. Çoklu GPU Ölçekleme (Multi-GPU Scaling)
 
 **Ne yapıyor?**
 Aynı iş yükünü 1 GPU ve 2 GPU ile çalıştırarak, ikinci GPU'nun ne kadar fayda sağladığını ölçüyor. Üç farklı model test edilir: ResNet-50 (görüntü/CNN), BERT-base (NLP encoder) ve GPT-2 Large (~774M parametre, LLM decoder). Her model için tek GPU baseline, DDP ve FSDP ZeRO-2 yöntemleri karşılaştırılır. Ölçekleme verimi (%) = 2 GPU throughput / (2 × 1 GPU throughput) × 100 formülüyle hesaplanır.
@@ -171,7 +139,7 @@ Microsoft DeepSpeed ZeRO Stage-2'nin PyTorch-native karşılığıdır. DDP'den 
 
 ## Karşılaştırma Grafikleri: Maksimum Verim ve Aynı Batch Boyutu
 
-Benchmark testleri 1-4 ve 8 (görüntü/NLP eğitim, çıkarım ve nesne algılama) birden fazla batch boyutunda çalışır. Her GPU, destekleyebildiği en büyük batch boyutuna kadar otomatik olarak ölçeklenir. Bu nedenle farklı VRAM kapasitesine sahip GPU'lar farklı batch boyutlarına ulaşabilir.
+Benchmark testleri 1-4 ve 7 (görüntü/NLP eğitim, çıkarım ve nesne algılama) birden fazla batch boyutunda çalışır. Her GPU, destekleyebildiği en büyük batch boyutuna kadar otomatik olarak ölçeklenir. Bu nedenle farklı VRAM kapasitesine sahip GPU'lar farklı batch boyutlarına ulaşabilir.
 
 Karşılaştırma grafiklerinde bu durum **iki ayrı grafik türü** ile gösterilir:
 
@@ -248,9 +216,9 @@ Modelin toplam parametreleri çok büyüktür (örneğin 671B), ancak her token 
 2. **Çıkarım testleri** → "Eğitilmiş modeli kaç kullanıcıya/kameraya aynı anda servis edebilirim?"
 3. **LLM testi** → "Yerel ChatGPT deneyimim ne kadar akıcı olur?"
 4. **VRAM testi** → "Ne kadar büyük bir model çalıştırabilirim?"
-5. **GEMM testi** → "GPU'nun saf hesaplama gücü ne?"
-6. **Watt/Performans** → "Aynı performansı ne kadar az enerjiyle elde ediyorum?"
-7. **Görece performans** → "Bu GPU, en zayıf rakibinden kaç kat hızlı?"
+5. **Watt/Performans** → "Aynı performansı ne kadar az enerjiyle elde ediyorum?"
+6. **Görece performans** → "Bu GPU, baseline'a göre kaç kat hızlı?"
+7. **Nesne algılama** → "Algılama modeli eğitiminde hangi GPU avantajlı?"
 8. **Çift GPU testi** → "İkinci GPU gerçekten işe yarıyor mu?"
 9. **Maks. verim vs Aynı BS** → "Fark VRAM'den mi yoksa saf güçten mi geliyor?"
 10. **Skor kartı** → "Tüm testlerde hangi GPU öne çıkıyor?"

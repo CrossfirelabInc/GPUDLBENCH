@@ -18,6 +18,7 @@ import csv
 import json
 import math
 import sys
+import textwrap
 from datetime import datetime
 from math import exp, log
 from pathlib import Path
@@ -30,7 +31,7 @@ import matplotlib.patheffects as path_effects
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.colors import LinearSegmentedColormap
-from matplotlib.patches import FancyBboxPatch
+from matplotlib.patches import FancyBboxPatch, Patch
 
 # ─── Project root ─────────────────────────────────────────────────────────────
 _SCRIPT_DIR = Path(__file__).resolve().parent
@@ -140,7 +141,17 @@ _STRINGS: dict[str, dict[str, str]] = {
         "higher_better":            "\u25b2 Yüksek = Daha iyi",
         "lower_better":             "\u25bc Düşük = Daha iyi",
         "bw_high_latency_low":      "Bant genişliği \u25b2  Gecikme \u25bc",
-        # — Training Vision
+        # — CNN Combined (Training + Inference Vision)
+        "cnn_title":                "CNN Performansı \u2014 ResNet",
+        "cnn_subtitle":             "Eğitim + Çıkarım \u2014 PRO 5000 = 1.0x",
+        "cnn_ylabel":               "Göreceli Performans",
+        "cat_train":                "Eğitim",
+        "cat_infer":                "Çıkarım",
+        # — Transformer Combined (Training + Inference NLP)
+        "transformer_title":        "Transformer Performansı \u2014 BERT",
+        "transformer_subtitle":     "Eğitim + Çıkarım \u2014 PRO 5000 = 1.0x",
+        "transformer_ylabel":       "Göreceli Performans",
+        # — Training Vision (legacy)
         "train_vision_title":       "Eğitim Verimi \u2014 Görüntü",
         "train_vision_subtitle":    "CNN (ResNet-50 / ResNet-101) — Maks. Verim",
         "train_vision_ylabel":      "Görüntü / sn",
@@ -195,7 +206,7 @@ _STRINGS: dict[str, dict[str, str]] = {
         "score_llm_speed":          "En İyi LLM Hızı",
         "score_llm_label":          "LLM",
         "score_vram_model":         "Maks. Yüklenebilir Model",
-        "score_vram_ctx":           "Maks. Bağlam Uzunluğu (3B)",
+        "score_vram_ctx":           "Maks. Bağlam Uzunluğu\n(3B FP16)",
         "score_llmfit_best":        "En İyi Yüklenebilir LLM",
         "score_llmfit_largest":     "En Büyük Dense LLM",
         "score_llmfit_moe":         "En Büyük MoE LLM",
@@ -204,8 +215,10 @@ _STRINGS: dict[str, dict[str, str]] = {
         "score_max_infer_tput":     "Maks. Çıkarım Verimi",
         "score_power":              "Ort. Güç Tüketimi\n(Test Sırasında)",
         "score_temp":               "Ort. Sıcaklık\n(Test Sırasında)",
-        "score_dlperf_cnn":          "DLPerf (CNN)",
-        "score_dlperf_transformer":  "DLPerf (Transformer)",
+        "score_dlperf":              "DLPerf Skoru\n(PRO 5000 = 100)",
+        "score_loadable_yes":       "\u2705 VRAM'e sığar",
+        "score_loadable_partial":   "\u26a0\ufe0f Kısmen yüklendi",
+        "score_loadable_no":        "\u274c Yüklenemedi",
         "unit_img_s":               "görüntü/sn",
         "unit_samples_s":           "örnek/sn",
         "unit_tflops":              "TFLOPS",
@@ -224,7 +237,7 @@ _STRINGS: dict[str, dict[str, str]] = {
         "power_llm_tokens":        "LLM Token/sn",
         # — Relative Performance
         "relative_title":           "Görece Performans Karşılaştırması",
-        "relative_subtitle":        "En düşük puanlı GPU = 1.0x temel çizgi",
+        "relative_subtitle":        "RTX PRO 5000 Blackwell = 1.0x temel çizgi",
         "relative_xlabel":          "Kat (x)",
         # — Multi-GPU
         "multigpu_title":           "Çift GPU Hızlandırma",
@@ -244,7 +257,7 @@ _STRINGS: dict[str, dict[str, str]] = {
         "vram_cat_context":         "Maks. Bağlam\n(K token)",
         # — CNN vs Transformer
         "cnn_vs_tf_title":          "CNN & Transformer — Ortalama Performans",
-        "cnn_vs_tf_subtitle":       "Geometrik ortalama (en düşük GPU = 1.0x)",
+        "cnn_vs_tf_subtitle":       "Geometrik ortalama (PRO 5000 Blackwell = 1.0x)",
         "cnn_vs_tf_ylabel":         "Normalize Skor",
         "cnn_vs_tf_cnn":            "CNN Ortalama",
         "cnn_vs_tf_transformer":    "Transformer Ortalama",
@@ -258,7 +271,17 @@ _STRINGS: dict[str, dict[str, str]] = {
         "higher_better":            "\u25b2 Higher is better",
         "lower_better":             "\u25bc Lower is better",
         "bw_high_latency_low":      "BW/Throughput \u25b2  Latency \u25bc",
-        # — Training Vision
+        # — CNN Combined (Training + Inference Vision)
+        "cnn_title":                "CNN Performance \u2014 ResNet",
+        "cnn_subtitle":             "Training + Inference \u2014 PRO 5000 = 1.0x",
+        "cnn_ylabel":               "Relative Performance",
+        "cat_train":                "Train",
+        "cat_infer":                "Infer",
+        # — Transformer Combined (Training + Inference NLP)
+        "transformer_title":        "Transformer Performance \u2014 BERT",
+        "transformer_subtitle":     "Training + Inference \u2014 PRO 5000 = 1.0x",
+        "transformer_ylabel":       "Relative Performance",
+        # — Training Vision (legacy)
         "train_vision_title":       "Training Throughput \u2014 Vision",
         "train_vision_subtitle":    "CNN (ResNet-50 / ResNet-101) — Max Throughput",
         "train_vision_ylabel":      "Images / sec",
@@ -313,7 +336,7 @@ _STRINGS: dict[str, dict[str, str]] = {
         "score_llm_speed":          "Best LLM Speed",
         "score_llm_label":          "LLM",
         "score_vram_model":         "Max Loadable Model",
-        "score_vram_ctx":           "Max Context Length (3B)",
+        "score_vram_ctx":           "Max Context Length\n(3B FP16)",
         "score_llmfit_best":        "Best Loadable LLM",
         "score_llmfit_largest":     "Largest Dense LLM",
         "score_llmfit_moe":         "Largest MoE LLM",
@@ -322,8 +345,10 @@ _STRINGS: dict[str, dict[str, str]] = {
         "score_max_infer_tput":     "Max Inference Throughput",
         "score_power":              "Avg Power Draw\n(During Test)",
         "score_temp":               "Avg Temperature\n(During Test)",
-        "score_dlperf_cnn":          "DLPerf (CNN)",
-        "score_dlperf_transformer":  "DLPerf (Transformer)",
+        "score_dlperf":              "DLPerf Score\n(PRO 5000 = 100)",
+        "score_loadable_yes":       "\u2705 Fits in VRAM",
+        "score_loadable_partial":   "\u26a0\ufe0f Partially loaded",
+        "score_loadable_no":        "\u274c Not loaded",
         "unit_img_s":               "img/s",
         "unit_samples_s":           "samples/s",
         "unit_tflops":              "TFLOPS",
@@ -342,7 +367,7 @@ _STRINGS: dict[str, dict[str, str]] = {
         "power_llm_tokens":        "LLM Token/s",
         # — Relative Performance
         "relative_title":           "Relative Performance Comparison",
-        "relative_subtitle":        "Lowest scoring GPU = 1.0x baseline",
+        "relative_subtitle":        "RTX PRO 5000 Blackwell = 1.0x baseline",
         "relative_xlabel":          "Speedup (x)",
         # — Multi-GPU
         "multigpu_title":           "Dual-GPU Speedup",
@@ -362,7 +387,7 @@ _STRINGS: dict[str, dict[str, str]] = {
         "vram_cat_context":         "Max Context\n(K tokens)",
         # — CNN vs Transformer
         "cnn_vs_tf_title":          "CNN & Transformer — Average Performance",
-        "cnn_vs_tf_subtitle":       "Geometric mean (lowest GPU = 1.0x)",
+        "cnn_vs_tf_subtitle":       "Geometric mean (PRO 5000 Blackwell = 1.0x)",
         "cnn_vs_tf_ylabel":         "Normalized Score",
         "cnn_vs_tf_cnn":            "CNN Average",
         "cnn_vs_tf_transformer":    "Transformer Average",
@@ -646,6 +671,12 @@ _EXTRACTORS = {
     "multi_gpu_scaling.json":  extract_multi_gpu_scaling,
 }
 
+# Legacy extractors kept for backward compatibility with existing result sets
+_LEGACY_EXTRACTORS = {
+    "gemm_stress.json":        extract_gemm_stress,
+    "gpu_fundamentals.json":   extract_gpu_fundamentals,
+}
+
 # Files from which we extract per-benchmark power for efficiency charts
 _POWER_BENCHMARKS = {
     "training_vision":    "training_vision.json",
@@ -689,15 +720,22 @@ def _load_session(session_dir: Path) -> tuple[str, str, Metricdict]:
     col_id = f"{gpu_name}_{date_str}"
     col_label = f"{gpu_name.replace('_', ' ')} \u2014 {date_str}"
 
+    # ── GPU name normalization ────────────────────────────────────────────
+    _GPU_NAME_MAP = {
+        "NVIDIA RTX A5000": "NVIDIA RTX A5000 Ampere",
+    }
+    display_name = gpu_name.replace("_", " ")
+    display_name = _GPU_NAME_MAP.get(display_name, display_name)
+
     combined: Metricdict = {}
     combined["session_id"] = session_id
-    combined["gpu_name"] = gpu_name.replace("_", " ")
+    combined["gpu_name"] = display_name
     combined["run_date"] = date_str
     combined["elapsed_sec"] = meta.get("elapsed_seconds")
     if gpu_vram_gb is not None:
         combined["gpu_vram_gb"] = gpu_vram_gb
 
-    for filename, extractor in _EXTRACTORS.items():
+    for filename, extractor in {**_EXTRACTORS, **_LEGACY_EXTRACTORS}.items():
         jpath = session_dir / filename
         if not jpath.exists():
             continue
@@ -859,11 +897,34 @@ class ComparisonData:
     def n_gpus(self) -> int:
         return len(self.col_ids)
 
-    def gpu_names(self) -> list[str]:
+    def gpu_names(self, with_vram: bool = True) -> list[str]:
+        """Return GPU display names, optionally with VRAM size appended."""
         names = []
         for cid in self.col_ids:
             v = self._metrics.get("gpu_name", {}).get(cid, cid)
-            names.append(str(v))
+            name = str(v)
+            if with_vram:
+                vram = self._metrics.get("gpu_vram_gb", {}).get(cid)
+                if vram is not None:
+                    name += f" ({vram:.0f}GB)"
+            names.append(name)
+        return names
+
+    def gpu_names_short(self) -> list[str]:
+        """Return GPU names without NVIDIA prefix, with VRAM."""
+        names = []
+        for cid in self.col_ids:
+            v = self._metrics.get("gpu_name", {}).get(cid, cid)
+            name = str(v)
+            # Strip common prefixes for shorter labels
+            for prefix in ["NVIDIA GeForce ", "NVIDIA "]:
+                if name.startswith(prefix):
+                    name = name[len(prefix):]
+                    break
+            vram = self._metrics.get("gpu_vram_gb", {}).get(cid)
+            if vram is not None:
+                name += f" ({vram:.0f}GB)"
+            names.append(name)
         return names
 
     def get(self, metric_id: str) -> list[float | None]:
@@ -1098,6 +1159,152 @@ def _build_bs_annotations(d: "ComparisonData", bs_keys: list[str]) -> list[list[
 #  Chart builders
 # ═══════════════════════════════════════════════════════════════════════════════
 
+def chart_cnn(d: ComparisonData, out: Path):
+    """Combined CNN chart: ResNet-50/101 — Training (left) + Inference (right).
+    Values are normalised to PRO 5000 = 1.0x baseline."""
+    _models = [("resnet50", "ResNet-50"), ("resnet101", "ResNet-101")]
+    _precs = ["fp32", "fp16", "bf16"]
+
+    # Find PRO 5000 baseline GPU index
+    base_gi: int | None = None
+    for _gi, _gn in enumerate(d.gpu_names(with_vram=False)):
+        if "PRO 5000" in _gn:
+            base_gi = _gi
+            break
+
+    # Build shared Y-axis categories and separate train/infer metric keys
+    cats: list[str] = []
+    train_keys: list[str | None] = []
+    infer_keys: list[str | None] = []
+
+    for model_key, model_label in _models:
+        for prec in _precs:
+            t_mid = f"train_vision_{model_key}_{prec}_img_per_sec"
+            i_mid = f"infer_vision_{model_key}_{prec}_img_per_sec"
+            t_has = any(v is not None for v in d.get(t_mid))
+            i_has = any(v is not None for v in d.get(i_mid))
+            if t_has or i_has:
+                cats.append(f"{model_label} {prec.upper()}")
+                train_keys.append(t_mid if t_has else None)
+                infer_keys.append(i_mid if i_has else None)
+
+    if not cats:
+        return
+
+    def _normalise(keys: list[str | None]) -> list[list[float | None]]:
+        """Normalise absolute values to PRO 5000 = 1.0x per category."""
+        raw = [[d.get(m)[gi] if m else None for m in keys]
+               for gi in range(d.n_gpus)]
+        normed: list[list[float | None]] = []
+        for gi in range(d.n_gpus):
+            row: list[float | None] = []
+            for ci in range(len(keys)):
+                v = raw[gi][ci]
+                if v is None or v == 0:
+                    row.append(None)
+                    continue
+                # baseline: PRO 5000's value for same category
+                bv = raw[base_gi][ci] if base_gi is not None else None
+                if bv and bv > 0:
+                    row.append(v / bv)
+                else:
+                    row.append(None)
+            normed.append(row)
+        return normed
+
+    train_vals = _normalise(train_keys)
+    infer_vals = _normalise(infer_keys)
+
+    fig, (ax_t, ax_i) = _standard_fig(
+        S("cnn_title"), S("higher_better"), ACCENT_GREEN,
+        d.n_gpus, len(cats),
+        height_ratio=max(1.0, len(cats) * 0.18),
+        n_axes=2, width_ratios=[1, 1])
+
+    _horizontal_grouped_bar(ax_t, cats, d.gpu_names_short(), train_vals,
+                            S("cnn_ylabel"), S("cat_train"),
+                            fmt="{:.2f}x")
+    _horizontal_grouped_bar(ax_i, cats, d.gpu_names_short(), infer_vals,
+                            S("cnn_ylabel"), S("cat_infer"),
+                            fmt="{:.2f}x")
+    # Remove redundant Y-labels from right panel
+    ax_i.set_yticklabels([])
+
+    fig.tight_layout(rect=[0, 0.02, 1, 0.92])
+    _save(fig, out / "cmp_cnn.png")
+
+
+def chart_transformer(d: ComparisonData, out: Path):
+    """Combined Transformer chart: BERT-Base/Large — Training (left) + Inference (right).
+    Values are normalised to PRO 5000 = 1.0x baseline."""
+    _models = [("bert-base", "BERT-Base"), ("bert-large", "BERT-Large")]
+    _precs = ["fp32", "fp16", "bf16"]
+
+    # Find PRO 5000 baseline GPU index
+    base_gi: int | None = None
+    for _gi, _gn in enumerate(d.gpu_names(with_vram=False)):
+        if "PRO 5000" in _gn:
+            base_gi = _gi
+            break
+
+    cats: list[str] = []
+    train_keys: list[str | None] = []
+    infer_keys: list[str | None] = []
+
+    for model_key, model_label in _models:
+        for prec in _precs:
+            t_mid = f"train_nlp_{model_key}_{prec}_samples_per_sec"
+            i_mid = f"infer_nlp_{model_key}_{prec}_samples_per_sec"
+            t_has = any(v is not None for v in d.get(t_mid))
+            i_has = any(v is not None for v in d.get(i_mid))
+            if t_has or i_has:
+                cats.append(f"{model_label} {prec.upper()}")
+                train_keys.append(t_mid if t_has else None)
+                infer_keys.append(i_mid if i_has else None)
+
+    if not cats:
+        return
+
+    def _normalise(keys: list[str | None]) -> list[list[float | None]]:
+        """Normalise absolute values to PRO 5000 = 1.0x per category."""
+        raw = [[d.get(m)[gi] if m else None for m in keys]
+               for gi in range(d.n_gpus)]
+        normed: list[list[float | None]] = []
+        for gi in range(d.n_gpus):
+            row: list[float | None] = []
+            for ci in range(len(keys)):
+                v = raw[gi][ci]
+                if v is None or v == 0:
+                    row.append(None)
+                    continue
+                bv = raw[base_gi][ci] if base_gi is not None else None
+                if bv and bv > 0:
+                    row.append(v / bv)
+                else:
+                    row.append(None)
+            normed.append(row)
+        return normed
+
+    train_vals = _normalise(train_keys)
+    infer_vals = _normalise(infer_keys)
+
+    fig, (ax_t, ax_i) = _standard_fig(
+        S("transformer_title"), S("higher_better"), ACCENT_GREEN,
+        d.n_gpus, len(cats),
+        height_ratio=max(1.0, len(cats) * 0.18),
+        n_axes=2, width_ratios=[1, 1])
+
+    _horizontal_grouped_bar(ax_t, cats, d.gpu_names_short(), train_vals,
+                            S("transformer_ylabel"), S("cat_train"),
+                            fmt="{:.2f}x")
+    _horizontal_grouped_bar(ax_i, cats, d.gpu_names_short(), infer_vals,
+                            S("transformer_ylabel"), S("cat_infer"),
+                            fmt="{:.2f}x")
+    ax_i.set_yticklabels([])
+
+    fig.tight_layout(rect=[0, 0.02, 1, 0.92])
+    _save(fig, out / "cmp_transformer.png")
+
 def chart_training_vision(d: ComparisonData, out: Path):
     cats, keys, bs_keys = [], [], []
     _model_labels = {"resnet50": "CNN (ResNet-50)", "resnet101": "CNN (ResNet-101)"}
@@ -1115,7 +1322,7 @@ def chart_training_vision(d: ComparisonData, out: Path):
     fig, ax = _standard_fig(S("train_vision_title"), S("higher_better"),
                             ACCENT_GREEN, d.n_gpus, len(cats),
                             height_ratio=max(1.0, len(cats) * 0.18))
-    _horizontal_grouped_bar(ax, cats, d.gpu_names(), vals, S("train_vision_ylabel"),
+    _horizontal_grouped_bar(ax, cats, d.gpu_names_short(), vals, S("train_vision_ylabel"),
                  S("train_vision_subtitle"), annotations_per_gpu=anns)
     fig.tight_layout(rect=[0, 0.02, 1, 0.92])
     _save(fig, out / "cmp_training_vision.png")
@@ -1138,7 +1345,7 @@ def chart_training_nlp(d: ComparisonData, out: Path):
     fig, ax = _standard_fig(S("train_nlp_title"), S("higher_better"),
                             ACCENT_GREEN, d.n_gpus, len(cats),
                             height_ratio=max(1.0, len(cats) * 0.18))
-    _horizontal_grouped_bar(ax, cats, d.gpu_names(), vals, S("train_nlp_ylabel"),
+    _horizontal_grouped_bar(ax, cats, d.gpu_names_short(), vals, S("train_nlp_ylabel"),
                  S("train_nlp_subtitle"), annotations_per_gpu=anns)
     fig.tight_layout(rect=[0, 0.02, 1, 0.92])
     _save(fig, out / "cmp_training_nlp.png")
@@ -1161,7 +1368,7 @@ def chart_inference_vision(d: ComparisonData, out: Path):
     fig, ax = _standard_fig(S("infer_vision_title"), S("higher_better"),
                             ACCENT_GREEN, d.n_gpus, len(cats),
                             height_ratio=max(1.0, len(cats) * 0.18))
-    _horizontal_grouped_bar(ax, cats, d.gpu_names(), vals, S("infer_vision_ylabel"),
+    _horizontal_grouped_bar(ax, cats, d.gpu_names_short(), vals, S("infer_vision_ylabel"),
                  S("infer_vision_subtitle"), annotations_per_gpu=anns)
     fig.tight_layout(rect=[0, 0.02, 1, 0.92])
     _save(fig, out / "cmp_inference_vision.png")
@@ -1184,22 +1391,23 @@ def chart_inference_nlp(d: ComparisonData, out: Path):
     fig, ax = _standard_fig(S("infer_nlp_title"), S("higher_better"),
                             ACCENT_GREEN, d.n_gpus, len(cats),
                             height_ratio=max(1.0, len(cats) * 0.18))
-    _horizontal_grouped_bar(ax, cats, d.gpu_names(), vals, S("infer_nlp_ylabel"),
+    _horizontal_grouped_bar(ax, cats, d.gpu_names_short(), vals, S("infer_nlp_ylabel"),
                  S("infer_nlp_subtitle"), annotations_per_gpu=anns)
     fig.tight_layout(rect=[0, 0.02, 1, 0.92])
     _save(fig, out / "cmp_inference_nlp.png")
 
 
 def chart_llm(d: ComparisonData, out: Path):
-    """LLM token generation chart — only shows bars for GPUs that have data
-    for each model, eliminating empty gaps."""
+    """LLM token generation chart — standard grouped-bar layout.
+    Models as Y-axis categories, GPUs as coloured bars within each group.
+    GPUs without data for a model are simply omitted (no bar drawn)."""
     tps_keys = sorted([m for m in d.metric_ids()
                        if m.startswith("llm_") and m.endswith("_tokens_per_sec")
                        and m != "llm_best_tokens_per_sec"])
     if not tps_keys:
         return
 
-    # Custom display order: DeepSeek 8B, Phi 4, Gemma 2 27B, QwQ 32B
+    # Custom display order: DeepSeek 8B → Phi 4 → Gemma 2 27B → QwQ 32B
     _LLM_ORDER = ["deepseek", "phi", "gemma", "qwq"]
 
     def _order_key(mid: str) -> int:
@@ -1211,118 +1419,47 @@ def chart_llm(d: ComparisonData, out: Path):
 
     tps_keys.sort(key=_order_key)
 
+    _LLM_PARAMS: dict[str, str] = {
+        "deepseek r1 distill llama 8b": "8B · Q4_K_M",
+        "phi 4":                        "14B · Q8_0",
+        "gemma 2 27b":                  "27B · Q4_K_M",
+        "qwq 32b":                      "32B · Q4_K_M",
+    }
+
     def _label(mid: str) -> str:
         name = mid.replace("llm_", "").replace("_tokens_per_sec", "")
         pretty = name.replace("_", " ").title()
-        # Add parameter counts for known models
-        _PARAMS = {
-            "deepseek r1 distill llama 8b": "8B",
-            "phi 4": "14B",
-            "gemma 2 27b": "27B",
-            "qwq 32b": "32B",
-        }
-        size = _PARAMS.get(pretty.lower(), "")
-        if size:
-            return f"LLM ({pretty} — {size})"
-        return "LLM (" + pretty + ")"
+        info = _LLM_PARAMS.get(pretty.lower(), "")
+        return f"{pretty}\n({info})" if info else pretty
 
-    all_gpu_names = d.gpu_names()
-    n_gpus = d.n_gpus
-
-    # Build compact model data: only GPUs with data per model
-    model_data: list[tuple[str, list[tuple[int, str, float]]]] = []
+    # Build categories (model labels) and per-GPU value lists
+    cats: list[str] = []
     for mk in tps_keys:
-        label = _label(mk)
         vals = d.get(mk)
-        gpu_bars = []
-        for gi in range(n_gpus):
-            if vals[gi] is not None and vals[gi] > 0:
-                gpu_bars.append((gi, all_gpu_names[gi], vals[gi]))
-        if gpu_bars:
-            model_data.append((label, gpu_bars))
+        if any(v is not None and v > 0 for v in vals):
+            cats.append(_label(mk))
 
-    if not model_data:
+    if not cats:
         return
 
-    # Calculate total number of bars for figure height
-    total_bars = sum(len(bars) for _, bars in model_data)
-    # Add spacing between model groups
-    total_rows = total_bars + len(model_data) - 1
+    # Build values_per_gpu: list[gpu][category] — None where GPU has no data
+    values_per_gpu: list[list[float | None]] = []
+    valid_keys = [mk for mk in tps_keys
+                  if any(v is not None and v > 0 for v in d.get(mk))]
+    for gi in range(d.n_gpus):
+        row: list[float | None] = []
+        for mk in valid_keys:
+            v = d.get(mk)[gi]
+            row.append(v if v is not None and v > 0 else None)
+        values_per_gpu.append(row)
 
-    fig_h = max(BASE_FIG_H, total_rows * 0.55 + 2)
-    fig_w = _fig_w(n_gpus, total_rows)
-    fig, ax = plt.subplots(figsize=(fig_w, fig_h))
-    t = fig.suptitle(S("llm_title"), fontsize=24, fontweight="bold",
-                     color=TEXT_COLOR, y=0.97)
-    t.set_path_effects([
-        path_effects.withStroke(linewidth=4, foreground=BG_COLOR, alpha=0.5),
-        path_effects.Normal(),
-    ])
-    dt = fig.text(0.97, 0.935, S("llm_higher"), ha="right", va="top",
-                  fontsize=13, color=ACCENT_GREEN, alpha=0.9)
-    dt.set_path_effects([path_effects.withStroke(linewidth=2, foreground=BG_COLOR, alpha=0.5)])
-    _watermark(fig)
+    fig, ax = _standard_fig(S("llm_title"), S("llm_higher"),
+                            ACCENT_GREEN, d.n_gpus, len(cats),
+                            height_ratio=max(1.0, len(cats) * 0.28))
 
-    bar_h = 0.7
-    vfs = _val_fontsize(n_gpus)
-    gfs = _gpu_name_fontsize(n_gpus)
-    y_positions: list[float] = []
-    y_labels: list[str] = []
-    bar_colors: list[str] = []
-    bar_vals: list[float] = []
-
-    y_pos = 0
-    model_label_positions: list[tuple[float, float, str]] = []  # (y_start, y_end, label)
-
-    for mi, (model_label, gpu_bars) in enumerate(model_data):
-        if mi > 0:
-            y_pos += 0.8  # gap between model groups
-
-        group_start = y_pos
-        for gi_orig, gname, val in gpu_bars:
-            y_positions.append(y_pos)
-            y_labels.append(gname)
-            bar_colors.append(GPU_COLORS[gi_orig % len(GPU_COLORS)])
-            bar_vals.append(val)
-            y_pos += 1.0
-
-        model_label_positions.append((group_start, y_pos - 1.0, model_label))
-
-    # Draw bars
-    all_vals = [v for v in bar_vals if v > 0]
-    max_v = max(all_vals) if all_vals else 1
-
-    for i, (yp, val, color, ylbl) in enumerate(zip(y_positions, bar_vals, bar_colors, y_labels)):
-        _gradient_barh(ax, yp, val, bar_h, color, zorder=3)
-        # GPU name inside the bar
-        ax.text(max_v * 0.01, yp, ylbl, ha="left", va="center",
-                fontsize=gfs, color=BG_COLOR, fontweight="bold",
-                alpha=0.85, clip_on=True)
-        # Value label after the bar
-        txt = ax.text(val + max_v * 0.01, yp, f"{val:.1f} t/s",
-                      va="center", fontsize=vfs, color=TEXT_COLOR, fontweight="bold")
-        txt.set_path_effects([
-            path_effects.withStroke(linewidth=2, foreground=BG_COLOR, alpha=0.6),
-        ])
-
-    # Y-axis: model group labels (centered for each group)
-    model_ticks = []
-    model_tick_labels = []
-    for y_start, y_end, label in model_label_positions:
-        center = (y_start + y_end) / 2
-        model_ticks.append(center)
-        model_tick_labels.append(label)
-
-    ax.set_yticks(model_ticks)
-    ax.set_yticklabels(model_tick_labels, fontsize=14, fontweight="bold",
-                       color=ACCENT_BLUE)
-    ax.invert_yaxis()
-
-    ax.set_xlabel(S("llm_xlabel_tps"), fontsize=15)
-    ax.set_title(S("llm_speed"), fontsize=16, color=ACCENT_BLUE, pad=10)
-    ax.grid(axis="x", linestyle="--", zorder=0)
-    ax.set_axisbelow(True)
-    ax.set_xlim(0, max_v * 1.20)
+    _horizontal_grouped_bar(ax, cats, d.gpu_names_short(), values_per_gpu,
+                            S("llm_xlabel_tps"), S("llm_speed"),
+                            fmt="{:.1f}")
 
     fig.tight_layout(rect=[0, 0.02, 1, 0.92])
     _save(fig, out / "cmp_llm.png")
@@ -1341,7 +1478,7 @@ def chart_gemm(d: ComparisonData, out: Path):
     fig, ax = _standard_fig(S("gemm_title"), S("higher_better"),
                             ACCENT_GREEN, d.n_gpus, len(cats),
                             height_ratio=max(1.0, len(cats) * 0.18))
-    _horizontal_grouped_bar(ax, cats, d.gpu_names(), vals, S("gemm_ylabel"),
+    _horizontal_grouped_bar(ax, cats, d.gpu_names_short(), vals, S("gemm_ylabel"),
                  S("gemm_subtitle"), fmt="{:.1f}")
     fig.tight_layout(rect=[0, 0.02, 1, 0.92])
     _save(fig, out / "cmp_gemm.png")
@@ -1379,7 +1516,7 @@ def chart_fundamentals(d: ComparisonData, out: Path):
     gfs = _gpu_name_fontsize(n_gpus)
 
     all_vals = []
-    for gi, gname in enumerate(d.gpu_names()):
+    for gi, gname in enumerate(d.gpu_names_short()):
         offset = (gi - (n_gpus - 1) / 2) * bar_h
         color = GPU_COLORS[gi % len(GPU_COLORS)]
         gvals = [v if v is not None else 0 for v in vals[gi]]
@@ -1428,7 +1565,7 @@ def chart_detection(d: ComparisonData, out: Path):
     fig, ax = _standard_fig(S("detect_title"), S("higher_better"),
                             ACCENT_GREEN, d.n_gpus, len(cats),
                             height_ratio=max(1.0, len(cats) * 0.18))
-    _horizontal_grouped_bar(ax, cats, d.gpu_names(), vals, S("detect_ylabel"),
+    _horizontal_grouped_bar(ax, cats, d.gpu_names_short(), vals, S("detect_ylabel"),
                  S("detect_subtitle"), fmt="{:.1f}", annotations_per_gpu=anns)
     fig.tight_layout(rect=[0, 0.03, 1, 0.92])
     _save(fig, out / "cmp_detection.png")
@@ -1527,7 +1664,7 @@ def _batch_norm_chart(d: ComparisonData, out: Path,
     fig, ax = _standard_fig(title, S("higher_better"),
                             ACCENT_BLUE, d.n_gpus, len(cats),
                             height_ratio=max(1.0, len(cats) * 0.18))
-    _horizontal_grouped_bar(ax, cats, d.gpu_names(), vals, S("batch_norm_ylabel"),
+    _horizontal_grouped_bar(ax, cats, d.gpu_names_short(), vals, S("batch_norm_ylabel"),
                  S(subtitle_key), fmt="{:.1f}", annotations_per_gpu=anns)
     fig.tight_layout(rect=[0, 0.02, 1, 0.92])
     _save(fig, out / filename)
@@ -1660,7 +1797,7 @@ def chart_power_efficiency(d: ComparisonData, out: Path):
         S("higher_better"), ACCENT_GREEN,
         d.n_gpus, len(cats),
         height_ratio=max(1.0, len(cats) * 0.18))
-    _horizontal_grouped_bar(ax, cats, d.gpu_names(), vals,
+    _horizontal_grouped_bar(ax, cats, d.gpu_names_short(), vals,
                  S("power_eff_ylabel"), S("power_eff_subtitle"), fmt="{:.2f}")
     fig.tight_layout(rect=[0, 0.02, 1, 0.92])
     _save(fig, out / "cmp_power_efficiency.png")
@@ -1669,11 +1806,12 @@ def chart_power_efficiency(d: ComparisonData, out: Path):
 # ── Relative Performance Chart ────────────────────────────────────────────────
 
 def chart_relative_performance(d: ComparisonData, out: Path):
-    """Lowest-scoring GPU = 1.0x baseline, show speedup for others."""
+    """RTX PRO 5000 Blackwell = 1.0x baseline, show speedup for others."""
     metric_specs = [
         ("train_vision_resnet50_fp16_img_per_sec",     "CNN (ResNet-50) Train FP16"),
         ("train_nlp_bert-base_bf16_samples_per_sec",   "Transformer (BERT-Base) Train BF16"),
         ("infer_vision_resnet50_fp16_img_per_sec",     "CNN (ResNet-50) Infer FP16"),
+        ("infer_nlp_bert-base_bf16_samples_per_sec",   "Transformer (BERT-Base) Infer BF16"),
     ]
 
     # Add best LLM metric
@@ -1685,13 +1823,25 @@ def chart_relative_performance(d: ComparisonData, out: Path):
         name = best_key.replace("llm_", "").replace("_tokens_per_sec", "").replace("_", " ").title()
         metric_specs.append((best_key, f"LLM ({name})"))
 
+    # Find baseline GPU index (RTX PRO 5000 Blackwell)
+    _gpu_raw = d.gpu_names(with_vram=False)
+    baseline_gi = None
+    for gi, gn in enumerate(_gpu_raw):
+        if "PRO 5000" in gn:
+            baseline_gi = gi
+            break
+
     cats, rel_per_gpu = [], []
     for mid, label in metric_specs:
         vals = d.get(mid)
         valid = [v for v in vals if v is not None and v > 0]
         if len(valid) < 1:
             continue
-        baseline = min(valid)
+        # Use PRO 5000 as baseline, fall back to min
+        if baseline_gi is not None and vals[baseline_gi] is not None and vals[baseline_gi] > 0:
+            baseline = vals[baseline_gi]
+        else:
+            baseline = min(valid)
         row = []
         for v in vals:
             if v is not None and baseline > 0:
@@ -1719,7 +1869,7 @@ def chart_relative_performance(d: ComparisonData, out: Path):
     gfs = _gpu_name_fontsize(n_gpus)
 
     all_vals_flat = []
-    for gi, gname in enumerate(d.gpu_names()):
+    for gi, gname in enumerate(d.gpu_names_short()):
         offset = (gi - (n_gpus - 1) / 2) * bar_h
         color = GPU_COLORS[gi % len(GPU_COLORS)]
         gvals = [v if v is not None else 0 for v in vals[gi]]
@@ -1738,7 +1888,7 @@ def chart_relative_performance(d: ComparisonData, out: Path):
 
     max_v = max(all_vals_flat) if all_vals_flat else 2
     ax.axvline(x=1.0, color=ACCENT_RED, linestyle="--", linewidth=1.5, alpha=0.7, zorder=2)
-    ax.text(1.0, y[-1] + 0.5, "1.0x", color=ACCENT_RED, fontsize=9, ha="center")
+    ax.text(1.0, y[-1] + 0.5, "1.0x baseline", color=ACCENT_RED, fontsize=9, ha="center")
 
     ax.set_yticks(y)
     ax.set_yticklabels(cats, fontsize=_tick_fontsize(n_gpus))
@@ -1781,8 +1931,16 @@ def chart_cnn_vs_transformer(d: ComparisonData, out: Path):
     ]
 
     def _geomean_normalised(metric_keys: list[str]) -> list[float | None]:
-        """Return per-GPU geometric mean of min-normalised metric values."""
+        """Return per-GPU geometric mean normalised to PRO 5000 Blackwell baseline."""
         n_gpus = d.n_gpus
+        # Find baseline GPU (PRO 5000 Blackwell)
+        _raw_names = d.gpu_names(with_vram=False)
+        _base_gi = None
+        for _gi, _gn in enumerate(_raw_names):
+            if "PRO 5000" in _gn:
+                _base_gi = _gi
+                break
+
         log_sums = [0.0] * n_gpus
         counts = [0] * n_gpus
         for mk in metric_keys:
@@ -1790,7 +1948,11 @@ def chart_cnn_vs_transformer(d: ComparisonData, out: Path):
             valid = [v for v in vals if v is not None and v > 0]
             if not valid:
                 continue
-            baseline = min(valid)
+            # Use PRO 5000 as baseline, fall back to min
+            if _base_gi is not None and vals[_base_gi] is not None and vals[_base_gi] > 0:
+                baseline = vals[_base_gi]
+            else:
+                baseline = min(valid)
             for gi, v in enumerate(vals):
                 if v is not None and v > 0 and baseline > 0:
                     log_sums[gi] += log(v / baseline)
@@ -1798,14 +1960,9 @@ def chart_cnn_vs_transformer(d: ComparisonData, out: Path):
         result: list[float | None] = []
         for gi in range(n_gpus):
             if counts[gi] > 0:
-                result.append(exp(log_sums[gi] / counts[gi]))
+                result.append(round(exp(log_sums[gi] / counts[gi]), 3))
             else:
                 result.append(None)
-        # Re-normalise so the minimum score is exactly 1.0×
-        valid_results = [v for v in result if v is not None and v > 0]
-        if valid_results:
-            base = min(valid_results)
-            result = [round(v / base, 3) if v is not None else None for v in result]
         return result
 
     def _avg_power(power_keys: list[str]) -> list[float | None]:
@@ -1833,7 +1990,7 @@ def chart_cnn_vs_transformer(d: ComparisonData, out: Path):
     cnn_power = _avg_power(CNN_POWER)
     tf_power = _avg_power(TF_POWER)
 
-    # Compute perf/watt (score / watts, then normalise to min)
+    # Compute perf/watt (score / watts, then normalise to PRO 5000 Blackwell)
     def _ppw(scores, powers):
         raw = []
         for s, p in zip(scores, powers):
@@ -1844,7 +2001,17 @@ def chart_cnn_vs_transformer(d: ComparisonData, out: Path):
         valid = [v for v in raw if v is not None and v > 0]
         if not valid:
             return [None] * len(raw)
-        baseline = min(valid)
+        # Find PRO 5000 baseline index
+        _raw_names = d.gpu_names(with_vram=False)
+        _base_gi = None
+        for _gi, _gn in enumerate(_raw_names):
+            if "PRO 5000" in _gn:
+                _base_gi = _gi
+                break
+        if _base_gi is not None and raw[_base_gi] is not None and raw[_base_gi] > 0:
+            baseline = raw[_base_gi]
+        else:
+            baseline = min(valid)
         return [round(v / baseline, 3) if v is not None else None for v in raw]
 
     cnn_ppw = _ppw(cnn_score, cnn_power)
@@ -1873,7 +2040,7 @@ def chart_cnn_vs_transformer(d: ComparisonData, out: Path):
     if not cats:
         return
 
-    gpu_names = d.gpu_names()
+    gpu_names = d.gpu_names_short()
     fig, ax = _standard_fig(S("cnn_vs_tf_title"), S("higher_better"),
                             ACCENT_GREEN, n_gpus, len(cats),
                             height_ratio=max(1.0, len(cats) * 0.18))
@@ -1963,7 +2130,7 @@ def chart_dual_gpu(d: ComparisonData, out: Path):
             llm_model_specs.append((mk, label))
 
     # Determine which GPUs actually have multi-GPU data
-    all_gpu_names = d.gpu_names()
+    all_gpu_names = d.gpu_names_short()
     has_multigpu = []
     for gi in range(d.n_gpus):
         has_any = False
@@ -2013,16 +2180,28 @@ def chart_dual_gpu(d: ComparisonData, out: Path):
 
     n_panels = len(panels)
     max_methods = max(len(ms) for _, _, ms, _ in panels)
-    fig_w = max(BASE_FIG_W, 6 * n_panels)
-    fig_h = max(BASE_FIG_H, 1.2 * n_active * max_methods + 3)
-    fig, axes = plt.subplots(1, n_panels, figsize=(fig_w, fig_h))
+
+    # Use vertical stacking (Nx1) instead of horizontal (1xN) for readability
+    fig_w = max(BASE_FIG_W, 5 * n_active + 4)
+    panel_h = max(2.5, 0.9 * n_active * max_methods + 1.2)
+    fig_h = panel_h * n_panels + 2.5
+    fig, axes = plt.subplots(n_panels, 1, figsize=(fig_w, fig_h))
     if n_panels == 1:
         axes = [axes]
 
-    fig.suptitle(S("multigpu_title"), fontsize=24, fontweight="bold",
-                 color=TEXT_COLOR, y=0.97)
-    fig.text(0.97, 0.935, S("higher_better"), ha="right", va="top",
-             fontsize=10, color=ACCENT_GREEN, alpha=0.9)
+    t = fig.suptitle(S("multigpu_title"), fontsize=24, fontweight="bold",
+                     color=TEXT_COLOR, y=0.98)
+    t.set_path_effects([
+        path_effects.withStroke(linewidth=4, foreground=BG_COLOR, alpha=0.5),
+        path_effects.Normal(),
+    ])
+    st = fig.text(0.5, 0.96, S("multigpu_subtitle"), ha="center",
+                  fontsize=14, color=SUBTEXT_COLOR)
+    st.set_path_effects([
+        path_effects.withStroke(linewidth=2, foreground=BG_COLOR, alpha=0.3),
+    ])
+    fig.text(0.97, 0.97, S("higher_better"), ha="right", va="top",
+             fontsize=11, color=ACCENT_GREEN, alpha=0.9)
     _watermark(fig)
 
     vfs = _val_fontsize(n_active * max_methods)
@@ -2035,7 +2214,7 @@ def chart_dual_gpu(d: ComparisonData, out: Path):
         # Collect values
         cats = [loc_label for _, _, loc_label, _ in p_methods]
         y = np.arange(n_methods)
-        total_height = min(0.85, 0.15 * n_active + 0.25)
+        total_height = min(0.90, max(0.75, 0.20 * n_active + 0.25))
         bar_h = total_height / n_active
 
         all_vals: list[float] = []
@@ -2095,9 +2274,18 @@ def chart_dual_gpu(d: ComparisonData, out: Path):
         ax.set_xlim(0, max_v * 1.35)
         ax.invert_yaxis()
 
-    fig.text(0.5, 0.92, S("multigpu_subtitle"), ha="center",
-             fontsize=15, color=SUBTEXT_COLOR)
-    fig.tight_layout(rect=[0, 0.02, 1, 0.90])
+    # Add shared legend at bottom
+    handles, labels = [], []
+    for gi_local, gi_global in enumerate(active_indices):
+        bar_color = GPU_COLORS[gi_global % len(GPU_COLORS)]
+        handles.append(Patch(facecolor=bar_color, label=gpu_names[gi_local]))
+        labels.append(gpu_names[gi_local])
+    if handles:
+        fig.legend(handles, labels, loc="lower center", ncol=min(len(handles), 4),
+                   fontsize=12, facecolor=CARD_COLOR, edgecolor=GRID_COLOR,
+                   bbox_to_anchor=(0.5, 0.01))
+
+    fig.tight_layout(rect=[0, 0.05, 1, 0.94])
     _save(fig, out / "cmp_dual_gpu.png")
 
 
@@ -2150,7 +2338,7 @@ def chart_vram_limits(d: ComparisonData, out: Path):
     gfs = _gpu_name_fontsize(n_gpus)
 
     all_vals: list[float] = []
-    for gi, gname in enumerate(d.gpu_names()):
+    for gi, gname in enumerate(d.gpu_names_short()):
         offset = (gi - (n_gpus - 1) / 2) * bar_h
         color = GPU_COLORS[gi % len(GPU_COLORS)]
         gvals = [v if v is not None else 0 for v in vals[gi]]
@@ -2196,6 +2384,55 @@ def chart_scorecard(d: ComparisonData, out: Path):
     vram_ctx = d.get("vram_max_context_length")
     if any(v is not None for v in vram_ctx):
         headline_metrics.append(("vram_max_context_length", S("score_vram_ctx"), S("unit_tokens"), "{:,.0f}", None))
+
+    # LLM performance rows — per-model token/s with loadable status
+    _LLM_ORDER_SC = ["deepseek", "phi", "gemma", "qwq"]
+    _LLM_PARAMS = {
+        "deepseek r1 distill llama 8b": ("8B", "Q4_K_M", 4.5),
+        "phi 4": ("14B", "Q8_0", 15.0),
+        "gemma 2 27b": ("27B", "Q4_K_M", 17.0),
+        "qwq 32b": ("32B", "Q4_K_M", 20.0),
+    }
+    llm_tps_keys = sorted([m for m in d.metric_ids()
+                            if m.startswith("llm_") and m.endswith("_tokens_per_sec")
+                            and m != "llm_best_tokens_per_sec"])
+
+    def _llm_order(mid: str) -> int:
+        low = mid.lower()
+        for i, prefix in enumerate(_LLM_ORDER_SC):
+            if prefix in low:
+                return i
+        return len(_LLM_ORDER_SC)
+
+    llm_tps_keys.sort(key=_llm_order)
+    gpu_vram_list = d.get("gpu_vram_gb")
+
+    for mk in llm_tps_keys:
+        tps_vals = d.get(mk)
+        if not any(v is not None for v in tps_vals):
+            continue
+        name = mk.replace("llm_", "").replace("_tokens_per_sec", "")
+        pretty = name.replace("_", " ").title()
+        info = _LLM_PARAMS.get(pretty.lower(), None)
+        if info:
+            param_label, quant, size_gb = info
+            label = f"LLM {pretty}\n({param_label} {quant})"
+            # Build detail: loadable status per GPU
+            detail_list: list[str | None] = []
+            for gi in range(d.n_gpus):
+                v = tps_vals[gi]
+                vram = gpu_vram_list[gi] if gpu_vram_list else None
+                if v is not None and v > 0:
+                    if vram and vram >= size_gb:
+                        detail_list.append(S("score_loadable_yes"))
+                    else:
+                        detail_list.append(S("score_loadable_partial"))
+                else:
+                    detail_list.append(S("score_loadable_no"))
+        else:
+            label = f"LLM {pretty}"
+            detail_list = [None] * d.n_gpus
+        headline_metrics.append((mk, label, S("unit_tokens_s"), "{:.1f}", detail_list))
 
     # llmfit — Best Loadable LLM per VRAM tier
     gpu_vram_vals = d.get("gpu_vram_gb")
@@ -2272,19 +2509,53 @@ def chart_scorecard(d: ComparisonData, out: Path):
     if any(v is not None for v in hw_temp):
         headline_metrics.append(("hw_avg_temp_c", S("score_temp"), S("unit_celsius"), "{:.0f}", None))
 
-    # DLPerf (CNN) — based on ResNet-50 FP32
-    dlperf_cnn_vals = []
-    fp32_train = d.get("train_vision_resnet50_fp32_img_per_sec")
-    for v in fp32_train:
-        dlperf_cnn_vals.append(round(v / 13.0, 1) if v else None)
+    # DLPerf — Combined score: CNN train+infer, Transformer train+infer, LLM token/s
+    # Baseline: RTX PRO 5000 Blackwell = 100
+    _DLPERF_METRICS = [
+        "train_vision_resnet50_fp16_img_per_sec",
+        "train_vision_resnet101_fp16_img_per_sec",
+        "infer_vision_resnet50_fp16_img_per_sec",
+        "infer_vision_resnet101_fp16_img_per_sec",
+        "train_nlp_bert-base_bf16_samples_per_sec",
+        "train_nlp_bert-large_bf16_samples_per_sec",
+        "infer_nlp_bert-base_bf16_samples_per_sec",
+        "infer_nlp_bert-large_bf16_samples_per_sec",
+    ]
+    # Add best common LLM metric
+    _llm_tps_keys = sorted([m for m in d.metric_ids()
+                             if m.startswith("llm_") and m.endswith("_tokens_per_sec")
+                             and m != "llm_best_tokens_per_sec"])
+    # Pick common LLM key (all GPUs ran)
+    _common_llm = [k for k in _llm_tps_keys if all(v is not None for v in d.get(k))]
+    if _common_llm:
+        _best_common_llm = max(_common_llm, key=lambda k: sum(v or 0 for v in d.get(k)))
+        _DLPERF_METRICS.append(_best_common_llm)
 
-    # DLPerf (Transformer) — based on BERT-Base FP32
-    dlperf_transformer_vals = []
-    fp32_bert = d.get("train_nlp_bert-base_fp32_samples_per_sec")
-    for v in fp32_bert:
-        dlperf_transformer_vals.append(round(v / 13.0, 1) if v else None)
+    # Find baseline GPU index (RTX PRO 5000 Blackwell)
+    _gpu_raw_names = d.gpu_names(with_vram=False)
+    _baseline_gi = None
+    for _gi, _gn in enumerate(_gpu_raw_names):
+        if "PRO 5000" in _gn or "pro 5000" in _gn.lower():
+            _baseline_gi = _gi
+            break
 
-    gpu_names = d.gpu_names()
+    dlperf_vals: list[float | None] = [None] * d.n_gpus
+    if _baseline_gi is not None:
+        # Compute geometric mean ratio to baseline for each GPU
+        for gi in range(d.n_gpus):
+            log_ratio_sum, count = 0.0, 0
+            for mid in _DLPERF_METRICS:
+                vals = d.get(mid)
+                v_gpu = vals[gi]
+                v_base = vals[_baseline_gi]
+                if v_gpu is not None and v_base is not None and v_base > 0 and v_gpu > 0:
+                    log_ratio_sum += log(v_gpu / v_base)
+                    count += 1
+            if count > 0:
+                geomean_ratio = exp(log_ratio_sum / count)
+                dlperf_vals[gi] = round(geomean_ratio * 100, 1)
+
+    gpu_names = d.gpu_names_short()
     n_gpus = d.n_gpus
 
     rows = []
@@ -2305,10 +2576,8 @@ def chart_scorecard(d: ComparisonData, out: Path):
             vals = d.get(mid)
             if any(v is not None for v in vals):
                 rows.append((label, unit, fmt, vals, detail))
-    if dlperf_cnn_vals and any(v is not None for v in dlperf_cnn_vals):
-        rows.append((S("score_dlperf_cnn"), "", "{:.1f}", dlperf_cnn_vals, None))
-    if dlperf_transformer_vals and any(v is not None for v in dlperf_transformer_vals):
-        rows.append((S("score_dlperf_transformer"), "", "{:.1f}", dlperf_transformer_vals, None))
+    if dlperf_vals and any(v is not None for v in dlperf_vals):
+        rows.append((S("score_dlperf"), "", "{:.1f}", dlperf_vals, None))
 
     if not rows:
         return
@@ -2316,27 +2585,31 @@ def chart_scorecard(d: ComparisonData, out: Path):
     n_rows = len(rows)
     n_cols = n_gpus + 1
 
-    fig_w = max(BASE_FIG_W, 4.5 * n_gpus + 3)
-    fig_h = max(BASE_FIG_H, 1.3 * n_rows + 2)
+    fig_w = max(BASE_FIG_W + 4, 5.0 * n_gpus + 4)
+    fig_h = max(BASE_FIG_H, 1.15 * n_rows + 2)
     fig = plt.figure(figsize=(fig_w, fig_h))
     fig.suptitle(S('score_title'), fontsize=26, fontweight="bold",
                  color=TEXT_COLOR, y=0.97)
 
+    # Use GridSpec for tighter control over spacing
+    gs = fig.add_gridspec(n_rows, n_cols, hspace=0.15, wspace=0.08,
+                          width_ratios=[0.85] + [1.0] * n_gpus)
+
     for ri, (label, unit, fmt, vals, detail) in enumerate(rows):
-        ax = fig.add_subplot(n_rows, n_cols, ri * n_cols + 1)
+        ax = fig.add_subplot(gs[ri, 0])
         ax.set_xlim(0, 1); ax.set_ylim(0, 1); ax.axis("off")
         ax.text(0.95, 0.5, label, ha="right", va="center",
-                fontsize=14, color=SUBTEXT_COLOR, fontweight="bold")
+                fontsize=15, color=SUBTEXT_COLOR, fontweight="bold")
 
         for gi in range(n_gpus):
-            ax = fig.add_subplot(n_rows, n_cols, ri * n_cols + 2 + gi)
+            ax = fig.add_subplot(gs[ri, 1 + gi])
             ax.set_xlim(0, 1); ax.set_ylim(0, 1); ax.axis("off")
 
             v = vals[gi]
             color = GPU_COLORS[gi % len(GPU_COLORS)]
 
-            rect = FancyBboxPatch((0.05, 0.1), 0.9, 0.8,
-                                   boxstyle="round,pad=0.05",
+            rect = FancyBboxPatch((0.02, 0.05), 0.96, 0.9,
+                                   boxstyle="round,pad=0.04",
                                    facecolor=CARD_COLOR, edgecolor=GRID_COLOR, linewidth=1)
             ax.add_patch(rect)
 
@@ -2348,31 +2621,38 @@ def chart_scorecard(d: ComparisonData, out: Path):
                 if unit:
                     val_str += f" {unit}"
 
+                # Split long LLM model names into two lines at '('
+                if " (" in val_str and len(val_str) > 18:
+                    parts = val_str.split(" (", 1)
+                    val_str = f"{parts[0]}\n({parts[1]}"
+
                 has_detail = detail and gi < len(detail) and detail[gi] is not None
-                val_y = 0.62 if has_detail else 0.55
+                val_y = 0.62 if has_detail else 0.52
                 # Auto-shrink font for long text (e.g. MoE LLM model names)
-                val_fs = 17
-                if len(val_str) > 20:
-                    val_fs = 12
-                elif len(val_str) > 14:
-                    val_fs = 14
+                # Use single-line length for sizing (longest line if multi-line)
+                longest_line = max(val_str.split("\n"), key=len)
+                val_fs = 19
+                if len(longest_line) > 22:
+                    val_fs = 13
+                elif len(longest_line) > 16:
+                    val_fs = 15
                 ax.text(0.5, val_y, val_str, ha="center", va="center",
                         fontsize=val_fs, fontweight="bold", color=color)
                 if has_detail:
-                    ax.text(0.5, 0.32, str(detail[gi]), ha="center", va="center",
-                            fontsize=10, color=SUBTEXT_COLOR, style="italic")
+                    ax.text(0.5, 0.28, str(detail[gi]), ha="center", va="center",
+                            fontsize=11, color=SUBTEXT_COLOR, style="italic")
             else:
                 ax.text(0.5, 0.5, "N/A", ha="center", va="center",
-                        fontsize=15, color=SUBTEXT_COLOR)
+                        fontsize=17, color=SUBTEXT_COLOR)
 
             if ri == 0:
-                ax.text(0.5, 1.05, gpu_names[gi], ha="center", va="bottom",
-                        fontsize=14, fontweight="bold",
+                ax.text(0.5, 1.08, gpu_names[gi], ha="center", va="bottom",
+                        fontsize=15, fontweight="bold",
                         color=GPU_COLORS[gi % len(GPU_COLORS)])
 
     # Disclaimer for LLM fit recommendations
     fig.text(0.5, 0.01, S("score_llmfit_disclaimer"),
-             ha="center", va="bottom", fontsize=9,
+             ha="center", va="bottom", fontsize=10,
              color=SUBTEXT_COLOR, style="italic", alpha=0.8)
 
     _watermark(fig)
@@ -2436,12 +2716,10 @@ def _run_charts(json_path: Path, output_dir: Path):
     print(f"  Lang   : {_LANG}")
 
     chart_fns = [
-        chart_training_vision,
-        chart_training_nlp,
-        chart_inference_vision,
-        chart_inference_nlp,
+        chart_cnn,
+        chart_transformer,
         chart_llm,
-        chart_power_efficiency,
+        chart_detection,
         chart_cnn_vs_transformer,
         chart_dual_gpu,
         chart_scorecard,
@@ -2462,17 +2740,38 @@ def main():
     global _LANG
 
     parser = argparse.ArgumentParser(
-        description="Extract benchmark metrics and generate comparison charts"
+        description="Extract benchmark metrics from session results and "
+                    "generate dark-theme comparison charts (PNG).",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=textwrap.dedent("""\
+        generated charts
+          comparison_charts/cmp_training_vision.*   CNN training throughput
+          comparison_charts/cmp_training_nlp.*      Transformer training throughput
+          comparison_charts/cmp_inference_vision.*   CNN inference throughput
+          comparison_charts/cmp_inference_nlp.*      Transformer inference throughput
+          comparison_charts/cmp_llm.*                LLM token/s per model
+          comparison_charts/cmp_vram_limits.*        Max batch-size / resolution
+          comparison_charts/cmp_training_detection.* Detection training throughput
+          comparison_charts/cmp_cnn_vs_transformer.* CNN vs Transformer overview
+          comparison_charts/cmp_power_efficiency.*   Throughput / watt
+          comparison_charts/cmp_scorecard.*          Multi-metric GPU scorecard
+
+        examples
+          python utils/generate_comparison.py
+          python utils/generate_comparison.py --lang tr
+          python utils/generate_comparison.py --sessions 20260224_011628_4e92d612
+          python utils/generate_comparison.py --skip-charts
+        """)
     )
     parser.add_argument("--results-dir", type=Path,
                         default=_PROJECT_ROOT / "results",
                         help="Root results directory (default: <project>/results)")
     parser.add_argument("--sessions", nargs="+", metavar="SESSION_ID",
-                        help="Specific session IDs to include (default: all)")
+                        help="Include only these session IDs (default: all found)")
     parser.add_argument("--output-dir", type=Path, default=None,
-                        help="Output directory (default: <results-dir>)")
+                        help="Output directory for CSV/JSON/charts (default: <results-dir>)")
     parser.add_argument("--skip-charts", action="store_true",
-                        help="Only extract metrics, skip chart generation")
+                        help="Extract metrics only; do not generate PNG charts")
     parser.add_argument("--lang", choices=["tr", "en"], default="en",
                         help="Chart language: tr (T\u00fcrk\u00e7e) or en (English). Default: en")
     args = parser.parse_args()

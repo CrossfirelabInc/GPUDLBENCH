@@ -74,8 +74,8 @@ BENCHMARKS = [
     (4,  "NLP Inference (BERT-base, BERT-large)",                "benchmarks/4_inference_nlp.py"),
     (5,  "LLM Token Generation (llama.cpp)",                     "benchmarks/5_llm_tokens_per_sec.py"),
     (6,  "VRAM Limitation Tests",                                "benchmarks/6_vram_limits.py"),
-    (8,  "Object Detection (Faster R-CNN + Mask R-CNN)",         "benchmarks/8_training_detection.py"),
-    (10, "Multi-GPU Training Scaling (DDP + FSDP)","benchmarks/10_multi_gpu_scaling.py"),
+    (7,  "Object Detection (Faster R-CNN + Mask R-CNN)",         "benchmarks/7_training_detection.py"),
+    (8,  "Multi-GPU Training Scaling (DDP + FSDP)",              "benchmarks/8_multi_gpu_scaling.py"),
 ]
 
 
@@ -169,22 +169,38 @@ def run_benchmark(num, name, script, total, output_dir: str = "results", extra_a
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Run GPU DL Benchmark Suite")
+    parser = argparse.ArgumentParser(
+        description="Run GPU DL Benchmark Suite — all 8 benchmarks sequentially.",
+        epilog="""
+Benchmarks:
+  1  CNN Training (ResNet-50/101)          5  LLM Token Generation (llama.cpp)
+  2  Transformer Training (BERT-Base/Large) 6  VRAM Capacity Test
+  3  CNN Inference (ResNet-50/101)          7  Object Detection (Faster/Mask R-CNN)
+  4  Transformer Inference (BERT-Base/Large) 8  Multi-GPU Scaling (DDP + FSDP)
+
+Examples:
+  python run_benchmarks.py                    # full suite (~2-4 hours)
+  python run_benchmarks.py --demo             # quick ~5 min smoke test
+  python run_benchmarks.py --skip 5 6 8       # skip specific benchmarks
+  python run_benchmarks.py --model-set popular # smaller LLM model set
+""",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     parser.add_argument("--skip", nargs="*", type=int, default=[],
-                        help="Benchmark numbers to skip (e.g. --skip 5 9)")
+                        help="Benchmark numbers to skip (e.g. --skip 5 6 8)")
     parser.add_argument("--model-set", type=str, default="default",
                         choices=["default", "popular"],
-                        help="LLM model set for benchmark 5 (default: default)")
+                        help="LLM model set for benchmark 5 (default: 'default' ~57GB, popular ~38GB)")
     parser.add_argument("--demo", action="store_true",
-                        help="Demo mode: minimal batch size, fewer iterations, "
-                             "skip benchmarks 6/9/10 for a fast ~5min run")
+                        help="Demo mode: minimal batch sizes, fewer iterations, "
+                             "skip benchmarks 6 & 8 for a fast ~5min run")
     parser.add_argument("--skip-thermal-warmup", action="store_true",
                         help="Skip the initial 60-second GPU thermal warmup")
     args = parser.parse_args()
 
     skip_set = set(args.skip)
     if args.demo:
-        skip_set |= {6, 10}
+        skip_set |= {6, 8}
 
     # ── Session setup ─────────────────────────────────────────────────
     session_id = make_session_id()

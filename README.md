@@ -9,7 +9,7 @@
 <a name="türkçe"></a>
 ## 🇹🇷 Türkçe
 
-NVIDIA GPU'lar için yapay zeka odaklı benchmark paketi. Eğitim hızı, çıkarım performansı, LLM token üretimi, VRAM kapasitesi ve çift-GPU ölçeklemeyi tek seferde ölçer. PyTorch + llama.cpp üzerine kurulu — Docker gerektirmez.
+NVIDIA GPU'lar için yapay zeka odaklı benchmark paketi. Eğitim hızı, çıkarım performansı, LLM token üretimi, VRAM kapasitesi, nesne algılama ve çift-GPU ölçeklemeyi tek seferde ölçer. PyTorch + llama.cpp üzerine kurulu — Docker gerektirmez.
 
 ### Hızlı Başlangıç
 
@@ -58,10 +58,8 @@ Grafikler `results/comparison_charts/` klasörüne kaydedilir.
 | 4 | Transformer Çıkarımı (BERT-Base/Large) | NLP çıkarım hızı |
 | 5 | LLM Token Üretimi (llama.cpp) | Token üretim hızı (token/sn) |
 | 6 | VRAM Kapasite Testi | En büyük yüklenebilir model, maks. bağlam uzunluğu |
-| 7 | GEMM Hesaplama Stresi | FP64/FP32/FP16/BF16/FP8 zirve TFLOPS |
-| 8 | Nesne Algılama Eğitimi (Faster/Mask R-CNN) | Algılama modeli eğitim hızı |
-| 9 | GPU Temelleri | Bellek bant genişliği, PCIe, gecikme, FFT |
-| 10 | Çift-GPU Ölçekleme (DDP + FSDP) | 2 GPU ile ölçekleme verimi |
+| 7 | Nesne Algılama Eğitimi (Faster/Mask R-CNN) | Algılama modeli eğitim hızı |
+| 8 | Çift-GPU Ölçekleme (DDP + FSDP) | 2 GPU ile ölçekleme verimi |
 
 ### Gereksinimler
 
@@ -75,7 +73,7 @@ Grafikler `results/comparison_charts/` klasörüne kaydedilir.
 
 ```bash
 python run_benchmarks.py --demo              # ~5 dk hızlı test
-python run_benchmarks.py --skip 5 6 10       # belirli testleri atla
+python run_benchmarks.py --skip 5 6 8        # belirli testleri atla
 python benchmarks/1_training_vision.py       # tek bir benchmark çalıştır
 ```
 
@@ -99,7 +97,7 @@ python utils/generate_comparison.py --skip-charts  # sadece metrik, grafik yok
 
 ### Çift-GPU Kurulumu
 
-Sisteminizde 2 aynı GPU varsa, benchmark 10 (çift-GPU ölçekleme) otomatik çalışır. Farklı GPU'larınız varsa hangisini test edeceğiniz sorulur ve çift-GPU testi atlanır.
+Sisteminizde 2 aynı GPU varsa, benchmark 8 (çift-GPU ölçekleme) otomatik çalışır. Farklı GPU'larınız varsa hangisini test edeceğiniz sorulur ve çift-GPU testi atlanır.
 
 ### Sorun Giderme
 
@@ -110,14 +108,29 @@ python3 install.py
 
 **GPU değiştirdiniz mi?** → Kurulumu tekrar çalıştırın. Yeni kartı algılar, PyTorch'u günceller ve llama.cpp'yi yeniden derler.
 
+### Kaldırma (Uninstall)
+
+Sanal ortam, llama.cpp, indirilen modeller, önbellek ve geçici dosyaları temizlemek için:
+
+```bash
+python uninstall.py                 # onay ile temizle
+python uninstall.py --force          # onay sormadan temizle
+python uninstall.py --include-results # sonuçları da sil
+python uninstall.py --dry-run        # ne silineceğini göster
+```
+
+> ⚠ **Uyarı**: Bu işlem indirilen model dosyalarını (~50+ GB), sanal ortamı ve llama.cpp derlemesini kalıcı olarak siler. Benchmark kaynak kodunuz ve sonuçlarınız (varsayılan olarak) korunur. NVIDIA sürücülerine dokunulmaz.
+
 > Detaylı benchmark açıklamaları için → [BENCHMARKS_TR.md](BENCHMARKS_TR.md)
+
+> For detailed benchmark explanations in English → [BENCHMARKS_EN.md](BENCHMARKS_EN.md)
 
 ---
 
 <a name="english"></a>
 ## 🇬🇧 English
 
-AI-focused benchmark suite for NVIDIA GPUs. Measures training throughput, inference speed, LLM token generation, VRAM capacity, and dual-GPU scaling in a single run. Built on PyTorch + llama.cpp — no Docker required.
+AI-focused benchmark suite for NVIDIA GPUs. Measures training throughput, inference speed, LLM token generation, VRAM capacity, object detection, and dual-GPU scaling in a single run. Built on PyTorch + llama.cpp — no Docker required.
 
 ### Quick Start
 
@@ -165,10 +178,8 @@ Charts are saved to `results/comparison_charts/`. English is the default languag
 | 4 | Transformer Inference (BERT-Base/Large) | NLP inference throughput |
 | 5 | LLM Token Generation (llama.cpp) | Token generation speed (tokens/sec) |
 | 6 | VRAM Capacity Test | Largest loadable model, max context length |
-| 7 | GEMM Compute Stress | Peak TFLOPS (FP64/FP32/FP16/BF16/FP8) |
-| 8 | Object Detection Training (Faster/Mask R-CNN) | Detection model training throughput |
-| 9 | GPU Fundamentals | Memory BW, PCIe, latency, FFT |
-| 10 | Dual-GPU Scaling (DDP + FSDP) | Scaling efficiency with 2 identical GPUs |
+| 7 | Object Detection Training (Faster/Mask R-CNN) | Detection model training throughput |
+| 8 | Dual-GPU Scaling (DDP + FSDP) | Scaling efficiency with 2 identical GPUs |
 
 ### Requirements
 
@@ -182,7 +193,7 @@ Charts are saved to `results/comparison_charts/`. English is the default languag
 
 ```bash
 python run_benchmarks.py --demo              # ~5-min smoke test
-python run_benchmarks.py --skip 5 6 10       # skip specific benchmarks
+python run_benchmarks.py --skip 5 6 8        # skip specific benchmarks
 python benchmarks/1_training_vision.py       # run a single benchmark
 ```
 
@@ -207,7 +218,7 @@ python utils/generate_comparison.py --skip-charts  # metrics only, no PNGs
 
 ### Dual-GPU Setup
 
-If your system has 2 identical GPUs, benchmark 10 (dual-GPU scaling) runs automatically. If your GPUs are different, you'll be prompted to choose which one to benchmark and the dual-GPU test is skipped.
+If your system has 2 identical GPUs, benchmark 8 (dual-GPU scaling) runs automatically. If your GPUs are different, you'll be prompted to choose which one to benchmark and the dual-GPU test is skipped.
 
 ### Troubleshooting
 
@@ -217,6 +228,21 @@ python3 install.py
 ```
 
 **Switched GPU?** → Re-run the installer. It detects the new card, updates PyTorch, and rebuilds llama.cpp.
+
+### Uninstall
+
+Clean up the virtual environment, llama.cpp, downloaded models, caches, and temporary files:
+
+```bash
+python uninstall.py                 # interactive confirmation
+python uninstall.py --force          # skip confirmation
+python uninstall.py --include-results # also delete results/
+python uninstall.py --dry-run        # show what would be deleted
+```
+
+> ⚠ **Warning**: This permanently deletes downloaded model files (~50+ GB), the virtual environment, and the llama.cpp build. Your benchmark source code and results are preserved by default. NVIDIA drivers are not touched.
+
+> For detailed benchmark explanations → [BENCHMARKS_EN.md](BENCHMARKS_EN.md)
 
 ### HuggingFace Token (Optional)
 

@@ -1,13 +1,13 @@
 # GPUDLBENCH — Project Context for AI Sessions
 
 > **Purpose of this file**: Hand this to any AI assistant at the start of a session so it understands the project without needing to read every file.  
-> **Last updated**: 2025-02-22 (post-fix session)
+> **Last updated**: 2025-02-26 (benchmark restructure session)
 
 ---
 
 ## What Is This Project?
 
-**Crossfirelab GPU Deep Learning Benchmark Suite** — a Python-based benchmark toolkit for NVIDIA GPUs focused on deep learning workloads. It measures training throughput, inference speed, LLM token generation, VRAM capacity, raw compute (GEMM), GPU fundamentals, and multi-GPU scaling. Results are saved as JSON/CSV per session and can be compared across GPU sessions via auto-generated charts.
+**Crossfirelab GPU Deep Learning Benchmark Suite** — a Python-based benchmark toolkit for NVIDIA GPUs focused on deep learning workloads. It measures training throughput, inference speed, LLM token generation, VRAM capacity, object detection, and multi-GPU scaling. Results are saved as JSON/CSV per session and can be compared across GPU sessions via auto-generated charts.
 
 **Target audience**: YouTube tech reviewers, GPU buyers, researchers comparing GPU performance.
 
@@ -17,7 +17,7 @@
 
 ```
 GPUDLBENCH/
-├── run_benchmarks.py          # Main runner — runs all 10 benchmarks sequentially
+├── run_benchmarks.py          # Main runner — runs all 8 benchmarks sequentially
 ├── install.py                 # Installer (venv, PyTorch, CUDA toolkit, llama.cpp, models)
 ├── requirements.txt           # Python deps (transformers, datasets, matplotlib, etc.)
 ├── .credentials               # HF_TOKEN for gated model downloads (user-created)
@@ -32,13 +32,13 @@ GPUDLBENCH/
 │   ├── 4_inference_nlp.py     # BERT-base/large inference latency + throughput
 │   ├── 5_llm_tokens_per_sec.py # GGUF models via llama.cpp — tokens/s
 │   ├── 6_vram_limits.py       # Max model size (FP16), max context length (3B), multi-model deploy
-│   ├── 8_training_detection.py # Faster R-CNN + Mask R-CNN training throughput
-│   └── 10_multi_gpu_scaling.py # DDP + FSDP ZeRO-2 scaling efficiency (ResNet/BERT/GPT-2)
+│   ├── 7_training_detection.py # Faster R-CNN + Mask R-CNN training throughput
+│   └── 8_multi_gpu_scaling.py # DDP + FSDP ZeRO-2 scaling efficiency (ResNet/BERT/GPT-2)
 │
 ├── utils/
 │   ├── generate_report.py     # Per-session markdown/CSV/JSON summary report
-│   └── generate_comparison.py # Cross-session metric extraction + 16 comparison chart types
-│                              #   (2014 lines, dark-theme matplotlib, bilingual TR/EN)
+│   └── generate_comparison.py # Cross-session metric extraction + 15 comparison chart types
+│                              #   (~2690 lines, dark-theme matplotlib, bilingual TR/EN)
 │
 ├── results/                   # Created at runtime — timestamped session folders
 │   ├── <session_id>/          # Contains per-benchmark .json + .csv + session_meta.json
@@ -50,9 +50,10 @@ GPUDLBENCH/
 │   ├── models/                # Downloaded GGUF files for benchmark 5
 │   └── hf_cache/              # HuggingFace cache
 │
-├── README.md                  # English setup/usage/troubleshooting
+├── README.md                  # Bilingual TR/EN setup/usage/troubleshooting
 ├── USAGE.md                   # CLI reference for all scripts
-├── BENCHMARKS_TR.md           # Turkish explanation of all 10 benchmarks for YouTube audience
+├── BENCHMARKS_TR.md           # Turkish explanation of all 8 benchmarks for YouTube audience
+├── BENCHMARKS_EN.md           # English explanation of all 8 benchmarks
 └── LICENSE                    # MIT
 ```
 
@@ -74,16 +75,18 @@ GPUDLBENCH/
 
 2. **Batch-size auto-scaling**: starts at a safe minimum, doubles (power-of-2), stops on OOM or throughput regression.
 
-3. **AMP handling**: `get_amp_context()` returns autocast for FP16/BF16; `get_grad_scaler()` returns GradScaler for FP16. FP8 is only used in GEMM stress (benchmark 7) via `torch._scaled_mm` — training/inference precisions are FP32/FP16/BF16 only.
+3. **AMP handling**: `get_amp_context()` returns autocast for FP16/BF16; `get_grad_scaler()` returns GradScaler for FP16. Training/inference precisions are FP32/FP16/BF16 only.
 
 4. **Results flow**: `run_benchmarks.py` → creates `results/<session_id>/` → runs each benchmark with `--output-dir` → `generate_report.py` creates per-session summary → `generate_comparison.py` reads all sessions and builds cross-GPU comparison.
 
-5. **generate_comparison.py** structure (2014 lines):
+5. **generate_comparison.py** structure (~2690 lines):
    - **Part 1**: Extractors per benchmark type → flat metric dict per session → comparison.csv/json
-   - **Part 2**: 16 chart builders (grouped bars, horizontal bars, scorecard) with dark theme
+   - **Part 2**: 15 chart builders (grouped bars, horizontal bars, scorecard) with dark theme
    - **Part 3**: CLI — discover sessions, extract, chart
    - Supports `--lang tr|en` for chart labels
    - Sorts GPUs by geometric mean of key DL metrics (best first)
+   - DLPerf composite score: geometric mean of (CNN train+infer, Transformer train+infer, LLM token/s) normalised to RTX PRO 5000 Blackwell = 100
+   - GPU names display VRAM size and A5000 is mapped to "A5000 Ampere"
 
 6. **Reproducibility**: fixed seeds, deterministic cuDNN, CUBLAS_WORKSPACE_CONFIG, disabled Flash/MemEfficient SDPA backends.
 
@@ -93,17 +96,17 @@ GPUDLBENCH/
 
 ## Known Issues / Quirks (post-fix)
 
-> Items marked ~~strikethrough~~ were fixed in the 2025-02-22 session.
+> Items marked ~~strikethrough~~ were fixed in previous sessions.
 
 1. ~~**install2.py → install.py**~~: Renamed.
-2. **`--skip-thermal-warmup` defaults to True**: standalone benchmark runs get no thermal warmup unless explicitly disabled. Only the full runner does warmup.
-3. ~~**FP8 removed from training/inference precisions**~~: Was mapped to FP16 autocast. Now only FP32/FP16/BF16 in benchmarks 1-4, 8. True FP8 only in GEMM stress.
-4. ~~**generate_report.py now includes benchmark 10**~~ (multi-GPU scaling): markdown table + CSV rows added.
-5. **DLPerf score uses magic number 13.0** — undocumented reference baseline.
-6. ~~**No dedicated VRAM comparison chart**~~ — `chart_vram_limits()` added: horizontal grouped bar chart showing largest loadable model (B params), VRAM used (GB), and max context length (K tokens) per GPU. Output: `cmp_vram_limits.png`.
+2. ~~**`--skip-thermal-warmup` defaults to True**~~: Fixed — now defaults to False so standalone benchmarks get thermal warmup.
+3. ~~**FP8 removed from training/inference precisions**~~: Was mapped to FP16 autocast. Now only FP32/FP16/BF16 in benchmarks 1-4, 7.
+4. ~~**generate_report.py now includes multi-GPU**~~ scaling: markdown table + CSV rows added.
+5. **DLPerf score uses magic number 13.0** in generate_report.py — undocumented reference baseline. Comparison charts use a different geometric-mean formula normalised to PRO 5000 = 100.
+6. ~~**No dedicated VRAM comparison chart**~~ — `chart_vram_limits()` added.
 7. **README says Linux-only** but installer has Windows path handling.
-8. ~~**GEMM stress global mutation**~~: Refactored to pass warmup/repeats as function parameters instead of mutating globals.
-9. ~~**N-body Euler integrator**~~: Replaced with proper kick-drift-kick leapfrog (symplectic) integrator with velocity tracking.
+8. ~~**GEMM stress + GPU fundamentals removed**~~: Benchmarks 7 (GEMM) and 9 (Fundamentals) were removed. Detection → #7, Multi-GPU → #8. Legacy extractors preserved for existing result data.
+9. ~~**N-body Euler integrator**~~: Replaced with proper kick-drift-kick leapfrog (symplectic) integrator.
 
 ---
 
@@ -117,10 +120,10 @@ source venv/bin/activate
 # Run all benchmarks
 python run_benchmarks.py              # full suite, ~2-4 hours
 python run_benchmarks.py --demo       # quick test, ~5 min
-python run_benchmarks.py --skip 5 6 10
+python run_benchmarks.py --skip 5 6 8
 
 # Run individual benchmark
-python benchmarks/7_gemm_stress.py
+python benchmarks/1_training_vision.py
 
 # Generate reports
 python utils/generate_report.py --results-dir results/<session_id>
@@ -140,19 +143,17 @@ python utils/generate_comparison.py --skip-charts      # metrics only
 
 ---
 
-## Comparison Charts Generated (16 total)
+## Comparison Charts Generated (15 total)
 
 1. Training Vision (max throughput + batch-normalized)
 2. Training NLP (max throughput + batch-normalized)
 3. Inference Vision
 4. Inference NLP
 5. LLM (tokens/s + TTFT)
-6. GEMM peak TFLOPS
-7. GPU Fundamentals
-8. Object Detection (max throughput + batch-normalized)
-9. Power Efficiency (throughput/watt)
-10. Relative Performance (lowest GPU = 1.0x baseline)
-11. CNN vs Transformer
-12. Dual-GPU Scaling
-13. VRAM Capacity Comparison
-14. Scorecard (summary table with winners)
+6. Object Detection (max throughput + batch-normalized)
+7. Power Efficiency (throughput/watt)
+8. Relative Performance (RTX PRO 5000 Blackwell = 1.0x baseline)
+9. CNN vs Transformer
+10. Dual-GPU Scaling (vertical stacking, shared legend)
+11. VRAM Capacity Comparison
+12. Scorecard (summary table with winners, per-LLM loadable status, DLPerf composite)
