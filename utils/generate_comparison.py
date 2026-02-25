@@ -2268,11 +2268,6 @@ def chart_dual_gpu(d: ComparisonData, out: Path):
         path_effects.withStroke(linewidth=4, foreground=BG_COLOR, alpha=0.5),
         path_effects.Normal(),
     ])
-    st = fig.text(0.5, 0.965, S("multigpu_subtitle"), ha="center",
-                  fontsize=12, color=SUBTEXT_COLOR)
-    st.set_path_effects([
-        path_effects.withStroke(linewidth=2, foreground=BG_COLOR, alpha=0.3),
-    ])
     fig.text(0.97, 0.975, S("higher_better"), ha="right", va="top",
              fontsize=10, color=ACCENT_GREEN, alpha=0.9)
     _watermark(fig)
@@ -2322,11 +2317,16 @@ def chart_dual_gpu(d: ComparisonData, out: Path):
             cat_rank.append({gl: rank for rank, (gl, _) in enumerate(scored)})
 
         for gi_local, gi_global, vals, effs in gpu_data:
-            for ci, (v, eff) in enumerate(zip(vals, effs)):
-                method_key = p_methods[ci][0]  # "single", "ddp", "fsdp", "tensor_parallel"
-                bar_color = METHOD_COLORS.get(method_key, GPU_COLORS[gi_global % len(GPU_COLORS)])
+            base_color = GPU_COLORS[gi_global % len(GPU_COLORS)]
+            # 1x bars get a dimmed variant; 2x bars keep the full GPU color
+            r, g, b = mcolors.to_rgb(base_color)
+            color_1x = (r * 0.55, g * 0.55, b * 0.55)  # darker shade for single
+            color_2x = base_color
 
+            for ci, (v, eff) in enumerate(zip(vals, effs)):
                 if v > 0:
+                    method_tag = p_methods[ci][0]
+                    bar_color = color_1x if method_tag == "single" else color_2x
                     rank = cat_rank[ci][gi_local]
                     offset = (rank - (n_active - 1) / 2) * bar_h
                     cy = y[ci] + offset
@@ -2338,11 +2338,10 @@ def chart_dual_gpu(d: ComparisonData, out: Path):
                             cy,
                             ann, va="center", fontsize=vfs,
                             color=TEXT_COLOR, fontweight="bold")
-                    # Use "2xGPUNAME" for multi-GPU bars
+                    # Use "2x" for multi-GPU bars, "1x" for single
                     method_tag = p_methods[ci][0]
-                    bar_label = (f"2x{gpu_names[gi_local]}"
-                                 if method_tag != "single"
-                                 else gpu_names[gi_local])
+                    n_prefix = "1x" if method_tag == "single" else "2x"
+                    bar_label = f"{n_prefix}{gpu_names[gi_local]}"
                     pad = max(all_vals) * 0.01 if all_vals else 0
                     ax.text(pad, cy,
                             bar_label, ha="left", va="center",
@@ -2359,16 +2358,12 @@ def chart_dual_gpu(d: ComparisonData, out: Path):
         ax.set_xlim(0, max_v * 1.35)
         ax.invert_yaxis()
 
-    # Add shared legend for methods (color = method type)
+    # Add shared legend for GPUs
     handles, labels = [], []
-    seen_methods: set[str] = set()
-    for _, _, p_methods_iter, _ in panels:
-        for method_key, _, method_label, _ in p_methods_iter:
-            if method_key not in seen_methods:
-                seen_methods.add(method_key)
-                mc = METHOD_COLORS.get(method_key, ACCENT_BLUE)
-                handles.append(Patch(facecolor=mc, label=method_label))
-                labels.append(method_label)
+    for gi_local, gi_global in enumerate(active_indices):
+        bar_color = GPU_COLORS[gi_global % len(GPU_COLORS)]
+        handles.append(Patch(facecolor=bar_color, label=gpu_names[gi_local]))
+        labels.append(gpu_names[gi_local])
     if handles:
         fig.legend(handles, labels, loc="lower center", ncol=min(len(handles), 6),
                    fontsize=11, facecolor=CARD_COLOR, edgecolor=GRID_COLOR,
