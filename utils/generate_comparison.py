@@ -57,8 +57,8 @@ GPU_COLORS = [ACCENT_BLUE, ACCENT_GREEN, ACCENT_PURPLE,
               ACCENT_ORANGE, ACCENT_CYAN, ACCENT_YELLOW,
               ACCENT_PINK, ACCENT_TEAL]
 
-DPI = 150
-BASE_FIG_W, BASE_FIG_H = 16, 9
+DPI = 240
+BASE_FIG_W, BASE_FIG_H = 16, 9   # 16:9 → 3840×2160 @ 240 DPI
 
 plt.rcParams.update({
     "figure.facecolor": BG_COLOR,
@@ -984,8 +984,10 @@ def _gpu_name_fontsize(n_gpus: int) -> int:
 # ── Chart helpers ─────────────────────────────────────────────────────────────
 
 def _save(fig, path: Path):
-    fig.savefig(path, dpi=DPI, bbox_inches="tight", facecolor=BG_COLOR,
-                edgecolor="none", pad_inches=0.3)
+    # Force exact 4K (3840×2160) output: 16×9 inches @ 240 DPI
+    fig.set_size_inches(BASE_FIG_W, BASE_FIG_H)
+    fig.savefig(path, dpi=DPI, facecolor=BG_COLOR,
+                edgecolor="none")
     plt.close(fig)
     print(f"  \u2713 {path.name}")
 
@@ -1002,9 +1004,10 @@ def _standard_fig(title: str, direction_text: str, direction_color: str,
                   n_gpus: int, n_categories: int = 6,
                   height_ratio: float = 1.0,
                   n_axes: int = 1, width_ratios: list | None = None):
-    """Create figure with standardized title/direction/watermark layout."""
-    w = _fig_w(n_gpus, n_categories)
-    h = BASE_FIG_H * height_ratio
+    """Create figure with standardized title/direction/watermark layout.
+    All charts use fixed 16:9 (BASE_FIG_W x BASE_FIG_H)."""
+    w = BASE_FIG_W
+    h = BASE_FIG_H
 
     if n_axes == 1:
         fig, ax = plt.subplots(figsize=(w, h))
@@ -2246,11 +2249,8 @@ def chart_dual_gpu(d: ComparisonData, out: Path):
     n_panels = len(panels)
     max_methods = max(len(ms) for _, _, ms, _ in panels)
 
-    # Use vertical stacking (Nx1) instead of horizontal (1xN) for readability
-    fig_w = max(BASE_FIG_W, 5 * n_active + 4)
-    panel_h = max(2.5, 0.9 * n_active * max_methods + 1.2)
-    fig_h = panel_h * n_panels + 4.5
-    fig, axes = plt.subplots(n_panels, 1, figsize=(fig_w, fig_h))
+    # Fixed 16:9 layout
+    fig, axes = plt.subplots(n_panels, 1, figsize=(BASE_FIG_W, BASE_FIG_H))
     if n_panels == 1:
         axes = [axes]
 
@@ -2665,21 +2665,22 @@ def chart_scorecard(d: ComparisonData, out: Path):
     n_rows = len(rows)
     n_cols = n_gpus + 1
 
-    fig_w = max(BASE_FIG_W + 4, 5.0 * n_gpus + 4)
-    fig_h = max(BASE_FIG_H, 1.15 * n_rows + 2)
-    fig = plt.figure(figsize=(fig_w, fig_h))
-    fig.suptitle(S('score_title'), fontsize=26, fontweight="bold",
+    fig = plt.figure(figsize=(BASE_FIG_W, BASE_FIG_H))
+    fig.suptitle(S('score_title'), fontsize=20, fontweight="bold",
                  color=TEXT_COLOR, y=0.97)
 
     # Use GridSpec for tighter control over spacing
-    gs = fig.add_gridspec(n_rows, n_cols, hspace=0.15, wspace=0.08,
+    gs = fig.add_gridspec(n_rows, n_cols, hspace=0.10, wspace=0.06,
                           width_ratios=[0.85] + [1.0] * n_gpus)
 
     for ri, (label, unit, fmt, vals, detail) in enumerate(rows):
+        is_dlperf = (ri == len(rows) - 1)  # DLPerf is always the last row
         ax = fig.add_subplot(gs[ri, 0])
         ax.set_xlim(0, 1); ax.set_ylim(0, 1); ax.axis("off")
+        label_color = ACCENT_GREEN if is_dlperf else SUBTEXT_COLOR
+        label_fs = 13 if is_dlperf else 10
         ax.text(0.95, 0.5, label, ha="right", va="center",
-                fontsize=15, color=SUBTEXT_COLOR, fontweight="bold")
+                fontsize=label_fs, color=label_color, fontweight="bold")
 
         for gi in range(n_gpus):
             ax = fig.add_subplot(gs[ri, 1 + gi])
@@ -2688,9 +2689,13 @@ def chart_scorecard(d: ComparisonData, out: Path):
             v = vals[gi]
             color = GPU_COLORS[gi % len(GPU_COLORS)]
 
+            # DLPerf row gets a highlighted card
+            card_face = "#0d2818" if is_dlperf else CARD_COLOR
+            card_edge = ACCENT_GREEN if is_dlperf else GRID_COLOR
+            card_lw = 3.0 if is_dlperf else 0.8
             rect = FancyBboxPatch((0.02, 0.05), 0.96, 0.9,
                                    boxstyle="round,pad=0.04",
-                                   facecolor=CARD_COLOR, edgecolor=GRID_COLOR, linewidth=1)
+                                   facecolor=card_face, edgecolor=card_edge, linewidth=card_lw)
             ax.add_patch(rect)
 
             if v is not None:
@@ -2711,28 +2716,31 @@ def chart_scorecard(d: ComparisonData, out: Path):
                 # Auto-shrink font for long text (e.g. MoE LLM model names)
                 # Use single-line length for sizing (longest line if multi-line)
                 longest_line = max(val_str.split("\n"), key=len)
-                val_fs = 19
-                if len(longest_line) > 22:
-                    val_fs = 13
+                val_fs = 13
+                if is_dlperf:
+                    val_fs = 18
+                elif len(longest_line) > 22:
+                    val_fs = 9
                 elif len(longest_line) > 16:
-                    val_fs = 15
+                    val_fs = 11
+                val_color = ACCENT_GREEN if is_dlperf else color
                 ax.text(0.5, val_y, val_str, ha="center", va="center",
-                        fontsize=val_fs, fontweight="bold", color=color)
+                        fontsize=val_fs, fontweight="bold", color=val_color)
                 if has_detail:
                     ax.text(0.5, 0.28, str(detail[gi]), ha="center", va="center",
-                            fontsize=11, color=SUBTEXT_COLOR, style="italic")
+                            fontsize=8, color=SUBTEXT_COLOR, style="italic")
             else:
                 ax.text(0.5, 0.5, "N/A", ha="center", va="center",
-                        fontsize=17, color=SUBTEXT_COLOR)
+                        fontsize=11, color=SUBTEXT_COLOR)
 
             if ri == 0:
                 ax.text(0.5, 1.08, gpu_names[gi], ha="center", va="bottom",
-                        fontsize=15, fontweight="bold",
+                        fontsize=11, fontweight="bold",
                         color=GPU_COLORS[gi % len(GPU_COLORS)])
 
     # Disclaimer for LLM fit recommendations
     fig.text(0.5, 0.01, S("score_llmfit_disclaimer"),
-             ha="center", va="bottom", fontsize=10,
+             ha="center", va="bottom", fontsize=8,
              color=SUBTEXT_COLOR, style="italic", alpha=0.8)
 
     _watermark(fig)
