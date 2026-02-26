@@ -1,6 +1,6 @@
 # GPU Deep Learning Benchmark Suite
 
-**By Crossfirelab** — Vibe Coded 🎯
+**By Crossfirelab** — Vibe Coded
 
 > **[Türkçe](#türkçe)** | **[English](#english)**
 
