@@ -145,12 +145,16 @@ _STRINGS: dict[str, dict[str, str]] = {
         "cnn_title":                "CNN Performansı \u2014 ResNet",
         "cnn_subtitle":             "Eğitim + Çıkarım \u2014 PRO 5000 = 1.0x",
         "cnn_ylabel":               "Göreceli Performans",
+        "cnn_subtitle_abs":         "Eğitim + Çıkarım \u2014 Maks. Verim",
+        "cnn_ylabel_abs":           "Görüntü / sn",
         "cat_train":                "Eğitim",
         "cat_infer":                "Çıkarım",
         # — Transformer Combined (Training + Inference NLP)
         "transformer_title":        "Transformer Performansı \u2014 BERT",
         "transformer_subtitle":     "Eğitim + Çıkarım \u2014 PRO 5000 = 1.0x",
         "transformer_ylabel":       "Göreceli Performans",
+        "transformer_subtitle_abs": "Eğitim + Çıkarım \u2014 Maks. Verim",
+        "transformer_ylabel_abs":   "Örnek / sn",
         # — Training Vision (legacy)
         "train_vision_title":       "Eğitim Verimi \u2014 Görüntü",
         "train_vision_subtitle":    "CNN (ResNet-50 / ResNet-101) — Maks. Verim",
@@ -193,6 +197,8 @@ _STRINGS: dict[str, dict[str, str]] = {
         "detect_title":             "Nesne Algılama Eğitimi",
         "detect_subtitle":          "Faster R-CNN / Mask R-CNN — PRO 5000 = 1.0x",
         "detect_ylabel":            "Göreceli Performans",
+        "detect_subtitle_abs":      "Faster R-CNN / Mask R-CNN — Maks. Verim",
+        "detect_ylabel_abs":        "Görüntü / sn",
         # — Same Batch Size comparison
         "batch_norm_suffix":        "(Aynı Batch Boyutu)",
         "batch_norm_ylabel":        "Örnek / sn",
@@ -275,12 +281,16 @@ _STRINGS: dict[str, dict[str, str]] = {
         "cnn_title":                "CNN Performance \u2014 ResNet",
         "cnn_subtitle":             "Training + Inference \u2014 PRO 5000 = 1.0x",
         "cnn_ylabel":               "Relative Performance",
+        "cnn_subtitle_abs":         "Training + Inference \u2014 Max Throughput",
+        "cnn_ylabel_abs":           "Images / sec",
         "cat_train":                "Train",
         "cat_infer":                "Infer",
         # — Transformer Combined (Training + Inference NLP)
         "transformer_title":        "Transformer Performance \u2014 BERT",
         "transformer_subtitle":     "Training + Inference \u2014 PRO 5000 = 1.0x",
         "transformer_ylabel":       "Relative Performance",
+        "transformer_subtitle_abs": "Training + Inference \u2014 Max Throughput",
+        "transformer_ylabel_abs":   "Samples / sec",
         # — Training Vision (legacy)
         "train_vision_title":       "Training Throughput \u2014 Vision",
         "train_vision_subtitle":    "CNN (ResNet-50 / ResNet-101) — Max Throughput",
@@ -323,6 +333,8 @@ _STRINGS: dict[str, dict[str, str]] = {
         "detect_title":             "Object Detection Training",
         "detect_subtitle":          "Faster R-CNN / Mask R-CNN \u2014 PRO 5000 = 1.0x",
         "detect_ylabel":            "Relative Performance",
+        "detect_subtitle_abs":      "Faster R-CNN / Mask R-CNN \u2014 Max Throughput",
+        "detect_ylabel_abs":        "Images / sec",
         # — Same Batch Size comparison
         "batch_norm_suffix":        "(Same Batch Size)",
         "batch_norm_ylabel":        "Samples / sec",
@@ -1195,9 +1207,10 @@ def _build_bs_annotations(d: "ComparisonData", bs_keys: list[str]) -> list[list[
 #  Chart builders
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def chart_cnn(d: ComparisonData, out: Path):
+def chart_cnn(d: ComparisonData, out: Path, relative: bool = True):
     """Combined CNN chart: ResNet-50/101 — Training (left) + Inference (right).
-    Values are normalised to PRO 5000 = 1.0x baseline."""
+    When relative=True, values are normalised to PRO 5000 = 1.0x baseline.
+    When relative=False, shows absolute img/sec values."""
     _models = [("resnet50", "ResNet-50"), ("resnet101", "ResNet-101")]
     _precs = ["fp32", "fp16", "bf16"]
 
@@ -1231,6 +1244,8 @@ def chart_cnn(d: ComparisonData, out: Path):
         """Normalise absolute values to PRO 5000 = 1.0x per category."""
         raw = [[d.get(m)[gi] if m else None for m in keys]
                for gi in range(d.n_gpus)]
+        if not relative:
+            return raw
         normed: list[list[float | None]] = []
         for gi in range(d.n_gpus):
             row: list[float | None] = []
@@ -1251,6 +1266,9 @@ def chart_cnn(d: ComparisonData, out: Path):
     train_vals = _normalise(train_keys)
     infer_vals = _normalise(infer_keys)
 
+    ylabel_key = "cnn_ylabel" if relative else "cnn_ylabel_abs"
+    fmt = "{:.2f}x" if relative else "{:.0f}"
+
     fig, (ax_t, ax_i) = _standard_fig(
         S("cnn_title"), S("higher_better"), ACCENT_GREEN,
         d.n_gpus, len(cats),
@@ -1258,11 +1276,11 @@ def chart_cnn(d: ComparisonData, out: Path):
         n_axes=2, width_ratios=[1, 1])
 
     _horizontal_grouped_bar(ax_t, cats, d.gpu_names_short(), train_vals,
-                            S("cnn_ylabel"), S("cat_train"),
-                            fmt="{:.2f}x")
+                            S(ylabel_key), S("cat_train"),
+                            fmt=fmt)
     _horizontal_grouped_bar(ax_i, cats, d.gpu_names_short(), infer_vals,
-                            S("cnn_ylabel"), S("cat_infer"),
-                            fmt="{:.2f}x")
+                            S(ylabel_key), S("cat_infer"),
+                            fmt=fmt)
     # Remove redundant Y-labels from right panel
     ax_i.set_yticklabels([])
 
@@ -1270,9 +1288,10 @@ def chart_cnn(d: ComparisonData, out: Path):
     _save(fig, out / "cmp_cnn.png")
 
 
-def chart_transformer(d: ComparisonData, out: Path):
+def chart_transformer(d: ComparisonData, out: Path, relative: bool = True):
     """Combined Transformer chart: BERT-Base/Large — Training (left) + Inference (right).
-    Values are normalised to PRO 5000 = 1.0x baseline."""
+    When relative=True, values are normalised to PRO 5000 = 1.0x baseline.
+    When relative=False, shows absolute samples/sec values."""
     _models = [("bert-base", "BERT-Base"), ("bert-large", "BERT-Large")]
     _precs = ["fp32", "fp16", "bf16"]
 
@@ -1305,6 +1324,8 @@ def chart_transformer(d: ComparisonData, out: Path):
         """Normalise absolute values to PRO 5000 = 1.0x per category."""
         raw = [[d.get(m)[gi] if m else None for m in keys]
                for gi in range(d.n_gpus)]
+        if not relative:
+            return raw
         normed: list[list[float | None]] = []
         for gi in range(d.n_gpus):
             row: list[float | None] = []
@@ -1324,6 +1345,9 @@ def chart_transformer(d: ComparisonData, out: Path):
     train_vals = _normalise(train_keys)
     infer_vals = _normalise(infer_keys)
 
+    ylabel_key = "transformer_ylabel" if relative else "transformer_ylabel_abs"
+    fmt = "{:.2f}x" if relative else "{:.0f}"
+
     fig, (ax_t, ax_i) = _standard_fig(
         S("transformer_title"), S("higher_better"), ACCENT_GREEN,
         d.n_gpus, len(cats),
@@ -1331,11 +1355,11 @@ def chart_transformer(d: ComparisonData, out: Path):
         n_axes=2, width_ratios=[1, 1])
 
     _horizontal_grouped_bar(ax_t, cats, d.gpu_names_short(), train_vals,
-                            S("transformer_ylabel"), S("cat_train"),
-                            fmt="{:.2f}x")
+                            S(ylabel_key), S("cat_train"),
+                            fmt=fmt)
     _horizontal_grouped_bar(ax_i, cats, d.gpu_names_short(), infer_vals,
-                            S("transformer_ylabel"), S("cat_infer"),
-                            fmt="{:.2f}x")
+                            S(ylabel_key), S("cat_infer"),
+                            fmt=fmt)
     ax_i.set_yticklabels([])
 
     fig.tight_layout(rect=[0, 0.02, 1, 0.92])
@@ -1581,8 +1605,8 @@ def chart_fundamentals(d: ComparisonData, out: Path):
     _save(fig, out / "cmp_fundamentals.png")
 
 
-def chart_detection(d: ComparisonData, out: Path):
-    """Detection training chart — relative performance, PRO 5000 = 1.0x."""
+def chart_detection(d: ComparisonData, out: Path, relative: bool = True):
+    """Detection training chart. relative=True: PRO 5000 = 1.0x; False: absolute img/sec."""
     cats, keys = [], []
     _model_labels = {
         "faster_rcnn_resnet50": "CNN (Faster R-CNN)",
@@ -1604,28 +1628,35 @@ def chart_detection(d: ComparisonData, out: Path):
             base_gi = _gi
             break
 
-    # Normalise to PRO 5000 = 1.0x
     raw = [[d.get(m)[gi] for m in keys] for gi in range(d.n_gpus)]
-    vals: list[list[float | None]] = []
-    for gi in range(d.n_gpus):
-        row: list[float | None] = []
-        for ci in range(len(keys)):
-            v = raw[gi][ci]
-            if v is None or v == 0:
-                row.append(None)
-                continue
-            bv = raw[base_gi][ci] if base_gi is not None else None
-            if bv and bv > 0:
-                row.append(v / bv)
-            else:
-                row.append(None)
-        vals.append(row)
+    if relative:
+        # Normalise to PRO 5000 = 1.0x
+        vals: list[list[float | None]] = []
+        for gi in range(d.n_gpus):
+            row: list[float | None] = []
+            for ci in range(len(keys)):
+                v = raw[gi][ci]
+                if v is None or v == 0:
+                    row.append(None)
+                    continue
+                bv = raw[base_gi][ci] if base_gi is not None else None
+                if bv and bv > 0:
+                    row.append(v / bv)
+                else:
+                    row.append(None)
+            vals.append(row)
+    else:
+        vals = raw
+
+    ylabel_key = "detect_ylabel" if relative else "detect_ylabel_abs"
+    subtitle_key = "detect_subtitle" if relative else "detect_subtitle_abs"
+    fmt = "{:.2f}x" if relative else "{:.0f}"
 
     fig, ax = _standard_fig(S("detect_title"), S("higher_better"),
                             ACCENT_GREEN, d.n_gpus, len(cats),
                             height_ratio=max(1.0, len(cats) * 0.18))
-    _horizontal_grouped_bar(ax, cats, d.gpu_names_short(), vals, S("detect_ylabel"),
-                 S("detect_subtitle"), fmt="{:.2f}x")
+    _horizontal_grouped_bar(ax, cats, d.gpu_names_short(), vals, S(ylabel_key),
+                 S(subtitle_key), fmt=fmt)
     fig.tight_layout(rect=[0, 0.03, 1, 0.92])
     _save(fig, out / "cmp_detection.png")
 
@@ -2806,34 +2837,78 @@ def _run_extraction(results_dir: Path, session_dirs: list[Path],
 
 
 def _run_charts(json_path: Path, output_dir: Path):
-    """Generate all comparison charts from comparison.json."""
-    d = ComparisonData(json_path)
-    chart_dir = output_dir / "comparison_charts"
-    chart_dir.mkdir(parents=True, exist_ok=True)
+    """Generate all comparison charts from comparison.json.
 
-    print(f"\n  Charts \u2192 {chart_dir}")
-    print(f"  GPUs   : {d.n_gpus} \u2014 {', '.join(d.gpu_names())}")
+    Creates two subdirectories:
+      - comparison_charts/relative/  — normalised to PRO 5000 = 1.0x
+      - comparison_charts/charts/    — absolute values (img/sec, samples/sec, …)
+    Charts that don't have a relative mode (LLM, dual-GPU, scorecard, cnn_vs_transformer)
+    are identical in both folders.
+    """
+    d = ComparisonData(json_path)
+    base_dir = output_dir / "comparison_charts"
+
+    rel_dir = base_dir / "relative"
+    abs_dir = base_dir / "charts"
+    rel_dir.mkdir(parents=True, exist_ok=True)
+    abs_dir.mkdir(parents=True, exist_ok=True)
+
+    print(f"\n  Charts → {base_dir}")
+    print(f"  GPUs   : {d.n_gpus} — {', '.join(d.gpu_names())}")
     print(f"  Lang   : {_LANG}")
 
-    chart_fns = [
+    # Functions that support relative= parameter
+    relative_fns = [
         chart_cnn,
         chart_transformer,
-        chart_llm,
         chart_detection,
+    ]
+    # Functions that are always the same in both folders
+    common_fns = [
+        chart_llm,
         chart_cnn_vs_transformer,
         chart_dual_gpu,
         chart_scorecard,
     ]
 
-    count = 0
-    for fn in chart_fns:
-        try:
-            fn(d, chart_dir)
-            count += 1
-        except Exception as e:
-            print(f"  \u26a0 {fn.__name__}: {e}", file=sys.stderr)
+    count_rel, count_abs = 0, 0
 
-    print(f"\n  Generated {count} chart set(s)")
+    # ── Relative folder ──
+    print(f"\n  [relative/]", flush=True)
+    for fn in relative_fns:
+        try:
+            fn(d, rel_dir, relative=True)
+            count_rel += 1
+        except Exception as e:
+            print(f"  ⚠ {fn.__name__}: {e}", file=sys.stderr)
+    for fn in common_fns:
+        try:
+            fn(d, rel_dir)
+            count_rel += 1
+        except Exception as e:
+            print(f"  ⚠ {fn.__name__}: {e}", file=sys.stderr)
+
+    # Force cleanup before second round to avoid memory pressure
+    import gc as _gc
+    plt.close("all")
+    _gc.collect()
+
+    # ── Absolute folder ──
+    print(f"  [charts/]", flush=True)
+    for fn in relative_fns:
+        try:
+            fn(d, abs_dir, relative=False)
+            count_abs += 1
+        except Exception as e:
+            print(f"  ⚠ {fn.__name__}: {e}", file=sys.stderr)
+    for fn in common_fns:
+        try:
+            fn(d, abs_dir)
+            count_abs += 1
+        except Exception as e:
+            print(f"  ⚠ {fn.__name__}: {e}", file=sys.stderr)
+
+    print(f"\n  Generated {count_rel} relative + {count_abs} absolute chart(s)")
 
 
 def main():
