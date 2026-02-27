@@ -555,7 +555,9 @@ def extract_vram_limits(data: dict) -> Metricdict:
     loadable = [r for r in rows if r.get("loadable")]
     if loadable:
         largest = max(loadable, key=lambda r: r.get("approx_params_b", 0))
-        out["vram_largest_loadable_params_b"] = _safe(largest.get("approx_params_b"))
+        # Prefer actual (measured) param count; fall back to approx label
+        actual = largest.get("actual_params_b")
+        out["vram_largest_loadable_params_b"] = _safe(actual if actual is not None else largest.get("approx_params_b"))
         out["vram_largest_loadable_actual_gb"] = _safe(largest.get("actual_vram_gb"))
     untried = [r for r in rows if not r.get("loadable")]
     if untried:
@@ -2485,39 +2487,6 @@ def chart_vram_limits(d: ComparisonData, out: Path):
 
 def chart_scorecard(d: ComparisonData, out: Path):
     headline_metrics = []
-
-    # VRAM — Max loadable model
-    # Use actual benchmark result where available; fall back to VRAM estimate.
-    # Estimate formula: max_params_B ≈ vram_gb / (2 bytes_FP16 × 1.2 overhead)
-    actual_params = d.get("vram_largest_loadable_params_b")
-    actual_detail_raw = d.get("vram_max_model_detail")
-    gpu_vram_vals = d.get("gpu_vram_gb")
-
-    merged_vals: list[float | None] = []
-    merged_detail: list[str | None] = []
-    for gi in range(d.n_gpus):
-        ap = actual_params[gi] if gi < len(actual_params) else None
-        ad = actual_detail_raw[gi] if actual_detail_raw and gi < len(actual_detail_raw) else None
-        vram = gpu_vram_vals[gi] if gi < len(gpu_vram_vals) else None
-        if ap is not None:
-            # Real benchmark result
-            merged_vals.append(ap)
-            merged_detail.append(ad)
-        elif vram is not None and vram > 0:
-            # Estimated from VRAM capacity
-            est = round(vram / (2 * 1.2), 1)
-            merged_vals.append(est)
-            merged_detail.append(f"est. · FP16 · {vram:.0f} GB")
-        else:
-            merged_vals.append(None)
-            merged_detail.append(None)
-    if any(v is not None for v in merged_vals):
-        det = merged_detail if any(v is not None for v in merged_detail) else None
-        headline_metrics.append(("_vram_max_model", S("score_vram_model"), S("unit_b_params"), "{:.1f}", det))
-
-    vram_ctx = d.get("vram_max_context_length")
-    if any(v is not None for v in vram_ctx):
-        headline_metrics.append(("vram_max_context_length", S("score_vram_ctx"), S("unit_tokens"), "{:,.0f}", None))
 
     # LLM performance rows — per-model token/s with loadable status
     _LLM_ORDER_SC = ["deepseek", "phi", "gemma", "qwq"]
