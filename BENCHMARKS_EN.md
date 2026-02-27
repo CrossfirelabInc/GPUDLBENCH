@@ -171,7 +171,7 @@ Key metrics shown on the scorecard:
 - **LLM speed** — token/s for each model, with VRAM loadable status (✅ loaded / ⚠️ partial / ❌ too large)
 - **VRAM capacity** — largest loadable model and context length
 - **LLMFit recommendations** — best-fit, largest Dense and largest MoE LLM for your VRAM (explained below)
-- **DLPerf composite score** — combined CNN + Transformer + LLM performance normalised to RTX PRO 5000 Blackwell = 100
+- **DLPerf composite score** — geometric mean of CNN train+infer, Transformer train+infer, and LLM token/s throughputs. Absolute score, no reference GPU needed.
 - **Power consumption & temperature** — lower is better
 
 ---

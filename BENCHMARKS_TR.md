@@ -171,6 +171,7 @@ Skor kartında gösterilen başlıca metrikler:
 - **LLM hızı** — en iyi modelin token/s değeri
 - **VRAM kapasitesi** — en büyük yüklenebilir model ve bağlam uzunluğu
 - **LLMFit önerileri** — VRAM'e göre en iyi, en büyük Dense ve en büyük MoE LLM önerileri (aşağıda açıklanmıştır)
+- **DLPerf bileşik skor** — CNN eğitim+çıkarım, Transformer eğitim+çıkarım ve LLM token/s verimlerinin geometrik ortalaması. Mutlak skor, referans GPU gerektirmez.
 - **Güç tüketimi & sıcaklık** — düşük olan daha iyi
 
 ---

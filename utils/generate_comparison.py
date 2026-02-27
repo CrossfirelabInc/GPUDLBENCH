@@ -211,17 +211,18 @@ _STRINGS: dict[str, dict[str, str]] = {
         "score_membw":              "Bellek Bant Genişliği",
         "score_llm_speed":          "En İyi LLM Hızı",
         "score_llm_label":          "LLM",
-        "score_vram_model":         "Maks. Yüklenebilir Model",
-        "score_vram_ctx":           "Maks. Bağlam Uzunluğu\n(3B FP16)",
-        "score_llmfit_best":        "En İyi Yüklenebilir LLM",
-        "score_llmfit_largest":     "En Büyük Dense LLM",
-        "score_llmfit_moe":         "En Büyük MoE LLM",
-        "score_llmfit_disclaimer":  "* LLM önerileri teorik VRAM tahminlerine dayalıdır (llmfit veritabanı). Gerçek performans; quantization, bağlam uzunluğu ve sistem yapılandırmasına göre değişebilir.\n* DLPerf = Geometrik ortalama(GPU / {baseline}) × 100  —  CNN eğitim+çıkarım, Transformer eğitim+çıkarım ve LLM token/s metriklerinin bileşimi.",
+        "score_vram_model":         "Maks. Yüklenebilir Model\n(FP16, Optimizasyonsuz)",
+        "score_vram_ctx":           "Maks. Bağlam Uzunluğu\n(Tahmini, 2ⁿ, Opt. Yok)",
+        "score_llmfit_best":        "En İyi Yüklenebilir LLM\n(Tahmini)",
+        "score_llmfit_largest":     "En Büyük Yüklenebilir\nDense LLM (Tahmini)",
+        "score_llmfit_moe":         "En Büyük Yüklenebilir\nMoE LLM (Tahmini)",
+        "score_llmfit_disclaimer":  "* LLM önerileri teorik VRAM tahminlerine dayalıdır (llmfit veritabanı). Gerçek performans; quantization, bağlam uzunluğu ve sistem yapılandırmasına göre değişebilir.\n* DLPerf = GeoMean(tüm verimler)  —  CNN eğitim+çıkarım, Transformer eğitim+çıkarım ve LLM token/s ham geometrik ortalaması. Mutlak skor, referans GPU gerektirmez.",
         "score_max_train_tput":     "Maks. Eğitim Verimi",
         "score_max_infer_tput":     "Maks. Çıkarım Verimi",
         "score_power":              "Ort. Güç Tüketimi\n(Test Sırasında)",
         "score_temp":               "Ort. Sıcaklık\n(Test Sırasında)",
-        "score_dlperf":              "DLPerf Skoru\n({baseline} = 100)",
+        "score_dlperf":              "DLPerf Skoru",
+        "score_dlperf_rel":          "Görece Performans\n(vs {baseline})",
         "score_loadable_yes":       "\u2705 VRAM'e sığar",
         "score_loadable_partial":   "\u26a0\ufe0f Kısmen yüklendi",
         "score_loadable_no":        "\u274c Yüklenemedi",
@@ -347,17 +348,18 @@ _STRINGS: dict[str, dict[str, str]] = {
         "score_membw":              "Memory Bandwidth",
         "score_llm_speed":          "Best LLM Speed",
         "score_llm_label":          "LLM",
-        "score_vram_model":         "Max Loadable Model",
-        "score_vram_ctx":           "Max Context Length\n(3B FP16)",
-        "score_llmfit_best":        "Best Loadable LLM",
-        "score_llmfit_largest":     "Largest Dense LLM",
-        "score_llmfit_moe":         "Largest MoE LLM",
-        "score_llmfit_disclaimer":  "* LLM recommendations are theoretical VRAM estimates (llmfit database). Actual fit depends on quantization, context length, and system configuration.\n* DLPerf = GeoMean(GPU / {baseline}) × 100  —  composite of CNN train+infer, Transformer train+infer, and LLM token/s metrics.",
+        "score_vram_model":         "Max Loadable Model\n(FP16, No Optimization)",
+        "score_vram_ctx":           "Max Context Length\n(Estimated, 2\u207f, No Opt.)",
+        "score_llmfit_best":        "Best Loadable LLM\n(Estimated)",
+        "score_llmfit_largest":     "Largest Loadable\nDense LLM (Estimated)",
+        "score_llmfit_moe":         "Largest Loadable\nMoE LLM (Estimated)",
+        "score_llmfit_disclaimer":  "* LLM recommendations are theoretical VRAM estimates (llmfit database). Actual fit depends on quantization, context length, and system configuration.\n* DLPerf = GeoMean(all throughputs)  —  raw geometric mean of CNN train+infer, Transformer train+infer, and LLM token/s. Absolute score, no reference GPU needed.",
         "score_max_train_tput":     "Max Training Throughput",
         "score_max_infer_tput":     "Max Inference Throughput",
         "score_power":              "Avg Power Draw\n(During Test)",
         "score_temp":               "Avg Temperature\n(During Test)",
-        "score_dlperf":              "DLPerf Score\n({baseline} = 100)",
+        "score_dlperf":              "DLPerf Score",
+        "score_dlperf_rel":          "Relative Performance\n(vs {baseline})",
         "score_loadable_yes":       "\u2714 Fits in VRAM",
         "score_loadable_partial":   "\u26a0\ufe0f Partially loaded",
         "score_loadable_no":        "\u274c Not loaded",
@@ -566,14 +568,15 @@ def extract_vram_limits(data: dict) -> Metricdict:
     max_label = data.get("max_model_size_label")
     if max_label is not None:
         out["vram_max_model_size_label"] = str(max_label)
+
     if loadable:
         largest = max(loadable, key=lambda r: r.get("approx_params_b", 0))
         lbl = largest.get("label", "")
         gb = largest.get("actual_vram_gb")
         if lbl:
-            detail = f"{lbl} params"
+            detail = f"GPT-2 FP16"
             if gb:
-                detail += f" ({gb:.1f} GB VRAM)"
+                detail += f" · {gb:.1f} GB"
             out["vram_max_model_detail"] = detail
     return out
 
@@ -2483,12 +2486,34 @@ def chart_vram_limits(d: ComparisonData, out: Path):
 def chart_scorecard(d: ComparisonData, out: Path):
     headline_metrics = []
 
-    # VRAM
-    vram_params = d.get("vram_largest_loadable_params_b")
-    if any(v is not None for v in vram_params):
-        vram_detail = d.get("vram_max_model_detail")
-        detail = vram_detail if any(v is not None for v in vram_detail) else None
-        headline_metrics.append(("vram_largest_loadable_params_b", S("score_vram_model"), S("unit_b_params"), "{:.0f}", detail))
+    # VRAM — Max loadable model
+    # Use actual benchmark result where available; fall back to VRAM estimate.
+    # Estimate formula: max_params_B ≈ vram_gb / (2 bytes_FP16 × 1.2 overhead)
+    actual_params = d.get("vram_largest_loadable_params_b")
+    actual_detail_raw = d.get("vram_max_model_detail")
+    gpu_vram_vals = d.get("gpu_vram_gb")
+
+    merged_vals: list[float | None] = []
+    merged_detail: list[str | None] = []
+    for gi in range(d.n_gpus):
+        ap = actual_params[gi] if gi < len(actual_params) else None
+        ad = actual_detail_raw[gi] if actual_detail_raw and gi < len(actual_detail_raw) else None
+        vram = gpu_vram_vals[gi] if gi < len(gpu_vram_vals) else None
+        if ap is not None:
+            # Real benchmark result
+            merged_vals.append(ap)
+            merged_detail.append(ad)
+        elif vram is not None and vram > 0:
+            # Estimated from VRAM capacity
+            est = round(vram / (2 * 1.2), 1)
+            merged_vals.append(est)
+            merged_detail.append(f"est. · FP16 · {vram:.0f} GB")
+        else:
+            merged_vals.append(None)
+            merged_detail.append(None)
+    if any(v is not None for v in merged_vals):
+        det = merged_detail if any(v is not None for v in merged_detail) else None
+        headline_metrics.append(("_vram_max_model", S("score_vram_model"), S("unit_b_params"), "{:.1f}", det))
 
     vram_ctx = d.get("vram_max_context_length")
     if any(v is not None for v in vram_ctx):
@@ -2526,18 +2551,7 @@ def chart_scorecard(d: ComparisonData, out: Path):
         if info:
             param_label, quant, size_gb = info
             label = f"LLM {pretty}\n({param_label} {quant})"
-            # Build detail: loadable status per GPU
-            detail_list: list[str | None] = []
-            for gi in range(d.n_gpus):
-                v = tps_vals[gi]
-                vram = gpu_vram_list[gi] if gpu_vram_list else None
-                if v is not None and v > 0:
-                    if vram and vram >= size_gb:
-                        detail_list.append(S("score_loadable_yes"))
-                    else:
-                        detail_list.append(S("score_loadable_partial"))
-                else:
-                    detail_list.append(S("score_loadable_no"))
+            detail_list: list[str | None] = [None] * d.n_gpus
         else:
             label = f"LLM {pretty}"
             detail_list = [None] * d.n_gpus
@@ -2626,7 +2640,7 @@ def chart_scorecard(d: ComparisonData, out: Path):
         headline_metrics.append(("hw_avg_temp_c", S("score_temp"), S("unit_celsius"), "{:.0f}", None))
 
     # DLPerf — Combined score: CNN train+infer, Transformer train+infer, LLM token/s
-    # Baseline: slowest GPU = 100
+    # Raw geometric mean of throughputs — absolute, deterministic, no baseline GPU needed.
     _DLPERF_METRICS = [
         "train_vision_resnet50_fp16_img_per_sec",
         "train_vision_resnet101_fp16_img_per_sec",
@@ -2647,30 +2661,29 @@ def chart_scorecard(d: ComparisonData, out: Path):
         _best_common_llm = max(_common_llm, key=lambda k: sum(v or 0 for v in d.get(k)))
         _DLPERF_METRICS.append(_best_common_llm)
 
-    # Slowest GPU as baseline (GPUs are sorted best-first)
-    _baseline_gi = d.n_gpus - 1
-
     dlperf_vals: list[float | None] = [None] * d.n_gpus
-    # Compute geometric mean ratio to baseline for each GPU
+    # Compute raw geometric mean of throughputs for each GPU
     for gi in range(d.n_gpus):
-        log_ratio_sum, count = 0.0, 0
+        log_sum, count = 0.0, 0
         for mid in _DLPERF_METRICS:
             vals = d.get(mid)
             v_gpu = vals[gi]
-            v_base = vals[_baseline_gi]
-            if v_gpu is not None and v_base is not None and v_base > 0 and v_gpu > 0:
-                log_ratio_sum += log(v_gpu / v_base)
+            if v_gpu is not None and v_gpu > 0:
+                log_sum += log(v_gpu)
                 count += 1
         if count > 0:
-            geomean_ratio = exp(log_ratio_sum / count)
-            dlperf_vals[gi] = round(geomean_ratio * 100, 1)
+            dlperf_vals[gi] = round(exp(log_sum / count), 1)
 
     gpu_names = d.gpu_names_short()
     n_gpus = d.n_gpus
 
     rows = []
     for mid, label, unit, fmt, detail in headline_metrics:
-        if mid.startswith("_llmfit_"):
+        if mid == "_vram_max_model":
+            # Synthetic: actual benchmark result + VRAM estimate fallback
+            if any(v is not None for v in merged_vals):
+                rows.append((label, unit, fmt, merged_vals, detail))
+        elif mid.startswith("_llmfit_"):
             # Synthetic llmfit metrics — string values
             if mid == "_llmfit_best":
                 vals = llmfit_best_vals
@@ -2687,8 +2700,34 @@ def chart_scorecard(d: ComparisonData, out: Path):
             if any(v is not None for v in vals):
                 rows.append((label, unit, fmt, vals, detail))
     if dlperf_vals and any(v is not None for v in dlperf_vals):
-        _bl = d.baseline_gpu_label()
-        rows.append((S("score_dlperf").format(baseline=_bl), "", "{:.1f}", dlperf_vals, None))
+        rows.append((S("score_dlperf"), "", "{:.1f}", dlperf_vals, None))
+
+        # Relative performance vs reference GPU (find by name)
+        _REF_KEYWORDS = ["pro 5000", "pro5000"]  # match any GPU containing these
+        _full_names = d.gpu_names(with_vram=False)
+        ref_gi = None
+        for gi_c, gn in enumerate(_full_names):
+            gn_low = gn.lower()
+            if any(kw in gn_low for kw in _REF_KEYWORDS):
+                ref_gi = gi_c
+                break
+        if ref_gi is not None and dlperf_vals[ref_gi] is not None and dlperf_vals[ref_gi] > 0:
+            ref_val = dlperf_vals[ref_gi]
+            # Short label for the reference GPU
+            ref_label = _full_names[ref_gi]
+            for pfx in ["NVIDIA GeForce ", "NVIDIA "]:
+                if ref_label.startswith(pfx):
+                    ref_label = ref_label[len(pfx):]
+                    break
+            ref_label = ref_label.replace(" Ampere", "").replace(" Blackwell", "")
+            rel_vals: list[float | None] = []
+            for gi_c in range(d.n_gpus):
+                dv = dlperf_vals[gi_c]
+                if dv is not None:
+                    rel_vals.append(round(dv / ref_val * 100, 1))
+                else:
+                    rel_vals.append(None)
+            rows.append((S("score_dlperf_rel").format(baseline=ref_label), "%", "{:.1f}", rel_vals, None))
 
     if not rows:
         return
@@ -2704,8 +2743,16 @@ def chart_scorecard(d: ComparisonData, out: Path):
     gs = fig.add_gridspec(n_rows, n_cols, hspace=0.10, wspace=0.06,
                           width_ratios=[0.85] + [1.0] * n_gpus)
 
+    # Track which row indices are the DLPerf highlight rows
+    _dlperf_label = S("score_dlperf")
+    _dlperf_rel_label_prefix = S("score_dlperf_rel").split("\n")[0]  # first line
+    _highlight_rows = set()
+    for _ri, (lbl, *_) in enumerate(rows):
+        if lbl == _dlperf_label or lbl.startswith(_dlperf_rel_label_prefix):
+            _highlight_rows.add(_ri)
+
     for ri, (label, unit, fmt, vals, detail) in enumerate(rows):
-        is_dlperf = (ri == len(rows) - 1)  # DLPerf is always the last row
+        is_dlperf = ri in _highlight_rows
         ax = fig.add_subplot(gs[ri, 0])
         ax.set_xlim(0, 1); ax.set_ylim(0, 1); ax.axis("off")
         label_color = ACCENT_GREEN if is_dlperf else SUBTEXT_COLOR
@@ -2743,7 +2790,7 @@ def chart_scorecard(d: ComparisonData, out: Path):
                     val_str = f"{parts[0]}\n({parts[1]}"
 
                 has_detail = detail and gi < len(detail) and detail[gi] is not None
-                val_y = 0.62 if has_detail else 0.52
+                val_y = 0.58 if has_detail else 0.52
                 # Auto-shrink font for long text (e.g. MoE LLM model names)
                 # Use single-line length for sizing (longest line if multi-line)
                 longest_line = max(val_str.split("\n"), key=len)
@@ -2758,8 +2805,8 @@ def chart_scorecard(d: ComparisonData, out: Path):
                 ax.text(0.5, val_y, val_str, ha="center", va="center",
                         fontsize=val_fs, fontweight="bold", color=val_color)
                 if has_detail:
-                    ax.text(0.5, 0.28, str(detail[gi]), ha="center", va="center",
-                            fontsize=8, color=SUBTEXT_COLOR, style="italic")
+                    ax.text(0.5, 0.22, str(detail[gi]), ha="center", va="center",
+                            fontsize=7.5, color=SUBTEXT_COLOR, style="italic")
             else:
                 ax.text(0.5, 0.5, "N/A", ha="center", va="center",
                         fontsize=11, color=SUBTEXT_COLOR)
@@ -2770,9 +2817,9 @@ def chart_scorecard(d: ComparisonData, out: Path):
                         color=GPU_COLORS[gi % len(GPU_COLORS)])
 
     # Disclaimer for LLM fit recommendations
-    fig.text(0.5, 0.01, S("score_llmfit_disclaimer").format(baseline=d.baseline_gpu_label()),
-             ha="center", va="bottom", fontsize=8,
-             color=SUBTEXT_COLOR, style="italic", alpha=0.8)
+    fig.text(0.5, 0.04, S("score_llmfit_disclaimer"),
+             ha="center", va="bottom", fontsize=10,
+             color=SUBTEXT_COLOR, style="italic", alpha=0.85)
 
     _watermark(fig)
     # GridSpec axes aren't compatible with tight_layout; skip it and
