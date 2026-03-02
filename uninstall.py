@@ -184,7 +184,7 @@ def uninstall(*, force: bool = False, include_results: bool = False,
         size = _dir_size(p)
         total_size += size
         marker = "📁" if p.is_dir() else "📄"
-        print(f"  {marker} {p.relative_to(PROJECT_ROOT):<25s}  {_sizeof_fmt(size):>10s}  — {desc}")
+        print(f"  {marker} {str(p.relative_to(PROJECT_ROOT)):<25s}  {_sizeof_fmt(size):>10s}  — {desc}")
 
     if pycaches:
         pc_size = sum(_dir_size(pc) for pc in pycaches)
